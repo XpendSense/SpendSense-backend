@@ -1,9 +1,10 @@
 from sqlmodel import select, Session
-from db.model.budget import BudgetModel, BudgetToPeopleModel
+from db.model.budget import BudgetModel, BudgetToPeopleModel, IncomeToBudgetModel
 from uuid import uuid4
 import logging as log
 
 from exceptions.budget import BudgetAddPeopleException, BudgetNameAlreadyExistsException
+from src.schemas.budget import Income
 
 class BudgetRepository:
     def get_all(self, session: Session) -> list[BudgetModel]:
@@ -81,11 +82,36 @@ class BudgetRepository:
             
             new_mapping = BudgetToPeopleModel(
                 budget_id=budget_id,
-                user_name=person.name
+                user_name=person.name,
+                user_id=-1 #Placeholder until we implement user management
             )
             session.add(new_mapping)
         
         session.commit()
         # Refresh the budget object to get updated people_mappings
         session.refresh(budget)
-        return budget 
+        return budget
+    
+    def add_income_to_budget(self, session: Session, budget_id: str, income: list[Income]) -> BudgetModel:
+        """Add income to a budget"""
+        budget = self.get_budget_by_id(session, budget_id)
+        log.info("[BudgetRepository.add_income_to_budget] Retrieved budget for id %s: %s", budget_id, budget)
+        if not budget:
+            raise ValueError("Budget not found")
+        
+        # Add the new income to the existing income
+        for income_item in income:
+            if income_item.amount < 0:
+                raise ValueError("Income amount cannot be negative")
+            new_income = IncomeToBudgetModel(
+                budget_id=budget_id,
+                user_id=income_item.user_id,
+                name=income_item.name,
+                amount=income_item.amount,
+                recurring=income_item.recurring
+            )
+            session.add(new_income)
+        
+        session.commit()
+        session.refresh(budget)
+        return budget

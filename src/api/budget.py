@@ -4,7 +4,12 @@ from typing import Annotated
 from sqlmodel import Session
 from db.session import get_session
 from service.budget_service import BudgetService
-from schemas.budget import BudgetCreateRequest, AddPeopleToBudgetRequest, Budget
+from schemas.budget import (
+    AddIncomeToBudgetRequest,
+    AddPeopleToBudgetRequest,
+    BudgetCreateRequest,
+    Budget
+)
 from exceptions.budget import BudgetException
 import logging as log
 
@@ -40,4 +45,13 @@ async def add_people(people_data: Annotated[AddPeopleToBudgetRequest, Body(embed
         raise BudgetException(f"Budget ID is required")
     
     response = BudgetService().add_people_to_budget(session, people_data.budget_id, people=people_data.people)
+    return response
+
+@router.put('/budget/income', response_model=Budget)
+async def add_income(income_data: Annotated[AddIncomeToBudgetRequest, Body(embed=True)], session: Session = Depends(get_session)):
+    log.info("[add_income] Adding income to budget with id: %s", income_data)
+    if income_data.budget_id is None or income_data.budget_id.strip() == "":
+        raise BudgetException(f"Budget ID is required")
+    
+    response = BudgetService().add_income_to_budget(session, income_data.budget_id, income=income_data.income)
     return response

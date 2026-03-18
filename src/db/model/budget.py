@@ -13,10 +13,25 @@ class BudgetModel(SQLModel, table=True):
         back_populates="budget",
         sa_relationship_kwargs={"lazy": "selectin"}  # Always eager load
     )
+    income: list["IncomeToBudgetModel"] = Relationship(
+        back_populates="budget",
+        sa_relationship_kwargs={"lazy": "selectin"}  # Always eager load
+    )
 
 class BudgetToPeopleModel(SQLModel, table=True):
     __tablename__ = "budget_to_user_mapping"
     id: int | None = Field(default=None, primary_key=True)
     budget_id: str | None = Field(default=None, foreign_key="budget.id")
     user_name: str | None = Field(default=None)
+    user_id: int | None = Field(default=None)
     budget: BudgetModel = Relationship(back_populates="people_mappings")
+
+class IncomeToBudgetModel(SQLModel, table=True):
+    __tablename__ = "income_to_budget_mapping"
+    id: int | None = Field(default=None, primary_key=True)
+    budget_id: str | None = Field(default=None, foreign_key="budget.id")
+    user_id: int | None = Field(default=None)
+    name: str | None = Field(default=None)
+    amount: float | None = Field(default=None)
+    recurring: bool | None = Field(default=False)
+    budget: BudgetModel = Relationship(back_populates="income")

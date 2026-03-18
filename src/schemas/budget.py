@@ -16,25 +16,26 @@ class BudgetToPeopleMapping(BaseModel):
     user_name: str | None = None
 
 class Income(BaseModel):
-    Id: str
+    id: str
+    user_id: int
     name: str
     amount: float
     recurring: bool
 
 class PaymentMethod(BaseModel):
-    Id: str
+    id: str
     name: str
     payment_type: PaymentType
 
 class Savings(BaseModel):
-    Id: str
+    id: str
     name: str
     planned_amount: float
     actual_amount: float
     recurring: bool
 
 class Category(BaseModel):
-    Id: str
+    id: str
     name: str
     description: str
 
@@ -44,7 +45,7 @@ class Person(BaseModel):
 
 class Expense(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    Id: str
+    id: str
     name: str
     date: date
     end_date: date
