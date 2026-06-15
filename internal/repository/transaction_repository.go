@@ -17,7 +17,7 @@ type TransactionRepository interface {
 	Update(ctx context.Context, arg db.UpdateTransactionParams) (db.Transaction, error)
 	Delete(ctx context.Context, arg db.DeleteTransactionParams) error
 
-	ListCategories(ctx context.Context, userID *uuid.UUID) ([]db.Category, error)
+	ListCategories(ctx context.Context, userID uuid.UUID) ([]db.Category, error)
 	CreateCategory(ctx context.Context, arg db.CreateCategoryParams) (db.Category, error)
 
 	ListPaymentMethods(ctx context.Context, userID uuid.UUID) ([]db.ListPaymentMethodsRow, error)
@@ -60,7 +60,7 @@ func (r *transactionRepository) Delete(ctx context.Context, arg db.DeleteTransac
 	return r.q.DeleteTransaction(ctx, arg)
 }
 
-func (r *transactionRepository) ListCategories(ctx context.Context, userID *uuid.UUID) ([]db.Category, error) {
+func (r *transactionRepository) ListCategories(ctx context.Context, userID uuid.UUID) ([]db.Category, error) {
 	return r.q.ListCategories(ctx, userID)
 }
 

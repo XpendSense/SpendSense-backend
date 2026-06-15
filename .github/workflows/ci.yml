@@ -41,10 +41,21 @@ jobs:
             -o /usr/local/bin/sops
           chmod +x /usr/local/bin/sops
 
+      - name: Install golang-migrate
+        run: |
+          curl -sSL \
+            "https://github.com/golang-migrate/migrate/releases/download/v4.18.1/migrate.linux-amd64.tar.gz" \
+            | tar xz -C /usr/local/bin migrate
+
       - name: Decrypt secrets
         env:
           SOPS_AGE_KEY: ${{ secrets.AGE_SECRET_KEY }}
         run: sops --decrypt --output .env.dev .env.dev.enc
+
+      - name: Run migrations
+        run: |
+          DATABASE_URL=$(grep '^DATABASE_URL=' .env.dev | cut -d= -f2-)
+          migrate -path internal/db/migrations -database "$DATABASE_URL" up
 
       - name: Download dependencies
         run: go mod download

@@ -1,4 +1,4 @@
-.PHONY: generate run test build tidy secrets-encrypt secrets-decrypt
+.PHONY: generate run test build tidy secrets-encrypt secrets-decrypt migrate migrate-down
 
 ENV ?= dev
 
@@ -23,3 +23,13 @@ secrets-encrypt:
 
 secrets-decrypt:
 	sops --decrypt --output .env.$(ENV) .env.$(ENV).enc
+
+migrate:
+	@migrate -path internal/db/migrations \
+		-database "$$(grep '^DATABASE_URL=' .env.$(ENV) | cut -d= -f2-)" \
+		up
+
+migrate-down:
+	@migrate -path internal/db/migrations \
+		-database "$$(grep '^DATABASE_URL=' .env.$(ENV) | cut -d= -f2-)" \
+		down 1

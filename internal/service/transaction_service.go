@@ -60,11 +60,11 @@ func (s *TransactionService) Delete(ctx context.Context, id, budgetID, userID uu
 	if err := s.assertBudgetOwner(ctx, budgetID, userID); err != nil {
 		return err
 	}
-	return s.transactions.Delete(ctx, db.DeleteTransactionParams{ID: id, BudgetID: budgetID})
+	return s.transactions.Delete(ctx, db.DeleteTransactionParams{ID: id, BudgetID: &budgetID})
 }
 
 func (s *TransactionService) ListCategories(ctx context.Context, userID uuid.UUID) ([]db.Category, error) {
-	return s.transactions.ListCategories(ctx, &userID)
+	return s.transactions.ListCategories(ctx, userID)
 }
 
 func (s *TransactionService) ListPaymentMethods(ctx context.Context, userID uuid.UUID) ([]db.ListPaymentMethodsRow, error) {

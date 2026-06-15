@@ -50,7 +50,7 @@ func (r *budgetRepository) GetByID(ctx context.Context, id uuid.UUID) (db.Budget
 }
 
 func (r *budgetRepository) ExistsByNameAndUser(ctx context.Context, name string, userID uuid.UUID) (bool, error) {
-	return r.q.ExistsBudgetByNameAndUser(ctx, name, userID)
+	return r.q.ExistsBudgetByNameAndUser(ctx, db.ExistsBudgetByNameAndUserParams{Name: name, UserID: userID})
 }
 
 func (r *budgetRepository) Create(ctx context.Context, arg db.CreateBudgetParams) (db.Budget, error) {
@@ -70,7 +70,7 @@ func (r *budgetRepository) ListPeople(ctx context.Context, budgetID uuid.UUID) (
 }
 
 func (r *budgetRepository) ExistsPerson(ctx context.Context, budgetID uuid.UUID, userName string) (bool, error) {
-	return r.q.ExistsBudgetPerson(ctx, budgetID, userName)
+	return r.q.ExistsBudgetPerson(ctx, db.ExistsBudgetPersonParams{BudgetID: budgetID, UserName: &userName})
 }
 
 func (r *budgetRepository) AddPerson(ctx context.Context, arg db.AddBudgetPersonParams) (db.BudgetToUserMapping, error) {

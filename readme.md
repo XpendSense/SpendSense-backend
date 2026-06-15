@@ -4,9 +4,7 @@ Income-first expense tracker. Set your total income, allocate fixed expenses, sa
 
 Built with **Go + ConnectRPC**. Works natively with a React frontend via `@connectrpc/connect-web` — no Envoy proxy required.
 
-> **API contract (proto files)** are maintained in the separate [`SpendSense-proto`](https://github.com/mauro-afa91/SpendSense-proto) repository and published to the [Buf Schema Registry](https://buf.build/mauro-afa91/spendsense).
->
-> **Database schema and migrations** are managed in the separate [`SpendSense-Database`](https://github.com/mauro-afa91/SpendSense-Database) repository.
+> **API contract (proto files)** are maintained in the separate [`SpendSense-proto`](https://github.com/XpendSense/SpendSense-proto) repository and published to the [Buf Schema Registry](https://buf.build/xpendsense/spendsense).
 
 ---
 
@@ -15,19 +13,21 @@ Built with **Go + ConnectRPC**. Works natively with a React frontend via `@conne
 | Concern | Library |
 |---|---|
 | RPC | [ConnectRPC](https://connectrpc.com) |
-| API contract | [buf.build/mauro-afa91/spendsense](https://buf.build/mauro-afa91/spendsense) |
-| Database | PostgreSQL via `jackc/pgx/v5` |
+| API contract | [buf.build/xpendsense/spendsense](https://buf.build/xpendsense/spendsense) |
+| Database | [Neon](https://neon.tech) (serverless PostgreSQL) via `jackc/pgx/v5` |
 | Queries | `sqlc` (type-safe Go from SQL) |
 | Auth | JWT (`golang-jwt/jwt/v5`) + Google OAuth2 |
+| Secrets | [SOPS](https://github.com/getsops/sops) + [age](https://github.com/FiloSottile/age) |
 
 ---
 
 ## Prerequisites
 
 - Go 1.23+
-- PostgreSQL (see `SpendSense-Database` for schema setup)
-- [buf CLI](https://buf.build/docs/installation) — pulls proto dependency and generates Go code
-- [sqlc CLI](https://docs.sqlc.dev/en/latest/overview/install.html) — generates type-safe Go from SQL
+- [buf CLI](https://buf.build/docs/installation)
+- [sqlc CLI](https://docs.sqlc.dev/en/latest/overview/install.html)
+- [SOPS CLI](https://github.com/getsops/sops/releases) (for secrets)
+- [age CLI](https://github.com/FiloSottile/age/releases) (for generating/using encryption keys)
 
 ```powershell
 go install github.com/bufbuild/buf/cmd/buf@latest
@@ -38,54 +38,70 @@ go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 
 ## One-time setup
 
-Run these steps in order from the repo root:
+### 1. Get your age private key
 
-### 1. Configure environment
+Secret files (`.env.dev`, `.env.prod`, etc.) are encrypted with SOPS + age. To decrypt them you need the private key. Place it at the SOPS default location:
 
-Fill in your values in `.env.dev`:
+- **Windows:** `%APPDATA%\sops\age\keys.txt`
+- **Linux/macOS:** `~/.config/sops/age/keys.txt`
+
+Ask a team member for the key, or if setting up a new environment, generate one:
+
+```powershell
+age-keygen -o "$env:APPDATA\sops\age\keys.txt"
+# then share the public key so .sops.yaml can be updated
+```
+
+### 2. Decrypt secrets
+
+```powershell
+make secrets-decrypt ENV=dev
+# produces .env.dev (gitignored)
+```
+
+`.env.dev` contains:
 
 ```
-DATABASE_URL=postgresql://postgres:<password>@localhost:5432/spendsense
+DATABASE_URL=postgresql://<user>:<password>@<host>.neon.tech/<db>?sslmode=require
 JWT_SECRET=<a-long-random-string>
 GOOGLE_CLIENT_ID=<from Google Cloud Console>
 GOOGLE_CLIENT_SECRET=<from Google Cloud Console>
 ```
 
-### 2. Set up the database
+Get the Neon connection string from the [Neon console](https://console.neon.tech) — use the **direct** connection (no `-pooler` suffix).
 
-Apply migrations from the `SpendSense-Database` repo before starting this service.
+### 3. Apply the database schema
 
-### 3. Authenticate with the Buf Schema Registry
+Run the schema once against your Neon database. You can do this via the Neon SQL editor or any PostgreSQL client:
+
+```powershell
+psql $DATABASE_URL -f internal/db/migrations/schema.sql
+```
+
+The schema file is at [internal/db/migrations/schema.sql](internal/db/migrations/schema.sql).
+
+### 4. Authenticate with the Buf Schema Registry
 
 ```powershell
 buf registry login buf.build
 # Enter your BSR token when prompted (generate one at buf.build/settings/user)
 ```
 
-This is required to pull the proto module from BSR. Without it, `buf generate` will fail with a "resource not found" error even though the module is public.
+Required to pull the proto module from BSR. Without it, `buf generate` will fail even for public modules.
 
-### 4. Generate code
+### 5. Generate code
 
 ```powershell
-# Pull proto definitions from BSR and generate Go types + ConnectRPC handler interfaces
-buf generate
-
-# Generate type-safe DB query methods from SQL
-sqlc generate
+make generate
+# runs: buf generate + sqlc generate
 ```
 
-> `buf generate` **must** run before `go build` — the handlers import from the `gen/` directory which only exists after generation.
+> `buf generate` must run before `go build` — handlers import from `gen/` which only exists after generation.
 
-### 6. Download dependencies
-
-```powershell
-go mod tidy
-```
-
-### 7. Start the server
+### 6. Start the server
 
 ```powershell
-go run ./cmd/server
+make run
 # Server starts on http://localhost:8080
 ```
 
@@ -94,34 +110,39 @@ go run ./cmd/server
 ## Daily development
 
 ```powershell
-# Run server (dev env by default)
-go run ./cmd/server
+make run              # start server (dev env)
+make test             # go test ./...
+make build            # compile binary to bin/
+make generate         # buf generate + sqlc generate
+make tidy             # go mod tidy
 
-# Run server against UAT database
-$env:ENV = "uat"; go run ./cmd/server
-
-# Run tests
-go test ./...
-
-# Build binary
-go build -o bin/server ./cmd/server
+make secrets-encrypt ENV=dev   # encrypt .env.dev → .env.dev.enc (commit this)
+make secrets-decrypt ENV=dev   # decrypt .env.dev.enc → .env.dev (gitignored)
 ```
 
-Or use the Makefile:
+---
+
+## Secrets workflow
+
+Plaintext `.env.*` files are **gitignored**. Only the encrypted `.env.*.enc` files are committed.
+
+To update a secret:
 
 ```powershell
-make run        # go run ./cmd/server
-make test       # go test ./...
-make build      # compile binary to bin/
-make generate   # buf generate + sqlc generate
-make tidy       # go mod tidy
+# 1. Edit .env.dev as needed
+# 2. Re-encrypt
+make secrets-encrypt ENV=dev
+# 3. Commit the .enc file
+git add .env.dev.enc
 ```
+
+CI decrypts using the `AGE_SECRET_KEY` repository secret (key contents, not a file path).
 
 ---
 
 ## Picking up proto changes
 
-When the `SpendSense-proto` repo publishes a new version:
+When `SpendSense-proto` publishes a new version:
 
 ```powershell
 make generate   # fetches latest proto from BSR and regenerates Go code
@@ -129,31 +150,45 @@ make generate   # fetches latest proto from BSR and regenerates Go code
 
 ---
 
+## Schema changes
+
+The database schema lives in [internal/db/migrations/schema.sql](internal/db/migrations/schema.sql). When you change it:
+
+1. Edit `schema.sql`
+2. Run `sqlc generate` to regenerate typed query methods
+3. Apply the updated schema to the Neon database
+4. Commit `schema.sql` and the regenerated `internal/sqlc/` files together
+
+---
+
 ## Project structure
 
 ```
 .
-├── buf.yaml               # Declares proto dependency (buf.build/mauro-afa91/spendsense)
-├── buf.gen.yaml           # Code generation config — outputs Go types to gen/
-├── buf.lock               # Pinned proto version (commit this)
-├── sqlc.yaml              # Points at SpendSense-Database schema + local query SQL
+├── buf.yaml                    # Declares proto dependency (buf.build/xpendsense/spendsense)
+├── buf.gen.yaml                # Code generation config — outputs Go types to gen/
+├── buf.lock                    # Pinned proto version (commit this)
+├── sqlc.yaml                   # Points at local schema + query SQL
+├── .sops.yaml                  # age public key for SOPS encryption rules
 │
-├── gen/                   # Generated by `buf generate` — do not edit
+├── gen/                        # Generated by `buf generate` — do not edit
 │
 ├── internal/
-│   ├── config/            # Env-based configuration
+│   ├── config/                 # Env-based configuration
 │   ├── db/
-│   │   └── query/         # SQL queries consumed by sqlc (app-specific)
-│   ├── sqlc/              # Generated by `sqlc generate` — do not edit
-│   ├── auth/              # JWT token service + Google OAuth client
-│   ├── apperr/            # Typed error values (NotFound, Forbidden, Duplicate, Invalid)
-│   ├── middleware/        # ConnectRPC interceptors (auth, logging)
-│   ├── repository/        # Database access layer
-│   ├── service/           # Business logic layer
-│   └── handler/           # RPC handler implementations
+│   │   ├── conn.go             # pgxpool setup (Neon-compatible settings)
+│   │   ├── migrations/         # Database schema (schema.sql)
+│   │   └── query/              # SQL queries consumed by sqlc
+│   ├── sqlc/                   # Generated by `sqlc generate` — do not edit
+│   ├── auth/                   # JWT token service + Google OAuth client
+│   ├── apperr/                 # Typed error values (NotFound, Forbidden, Duplicate, Invalid)
+│   ├── middleware/             # ConnectRPC interceptors (auth, logging)
+│   ├── repository/             # Database access layer
+│   ├── service/                # Business logic layer (unit-tested)
+│   └── handler/                # RPC handler implementations
 │
 └── cmd/
-    └── server/main.go     # Application entry point
+    └── server/main.go          # Application entry point
 ```
 
 ---
@@ -161,8 +196,6 @@ make generate   # fetches latest proto from BSR and regenerates Go code
 ## Connecting a React frontend
 
 The frontend consumes pre-generated npm packages published automatically by the BSR — no local proto tooling required.
-
-See `SpendSense-proto` README for frontend setup instructions, or use the generated client directly:
 
 ```typescript
 import { createConnectTransport } from "@connectrpc/connect-web";
