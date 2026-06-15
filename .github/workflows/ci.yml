@@ -51,7 +51,7 @@ jobs:
 
       - name: Run migrations
         run: |
-          DATABASE_URL=$(grep '^DATABASE_URL=' .env.dev | cut -d= -f2-)
+          DATABASE_URL=$(grep '^DATABASE_URL=' .env.dev | cut -d= -f2- | tr -d '\r')
           goose -dir ./internal/db/migrations postgres "$DATABASE_URL" up
 
       - name: Download dependencies
