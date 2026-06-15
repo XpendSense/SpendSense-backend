@@ -48,7 +48,8 @@ jobs:
 
       - name: Run migrations
         run: |
-          export DATABASE_URL=$(grep '^DATABASE_URL=' .env.dev | cut -d= -f2- | tr -d '\r')
+          export DATABASE_URL=$(grep '^DATABASE_URL=' .env.dev | cut -d= -f2- | tr -d '\r"'"'")
+          echo "DATABASE_URL scheme: ${DATABASE_URL:0:13}"
           go run ./cmd/migrate up
 
       - name: Download dependencies
