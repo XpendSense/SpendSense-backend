@@ -18,6 +18,8 @@ Built with **Go + ConnectRPC**. Works natively with a React frontend via `@conne
 | Queries | `sqlc` (type-safe Go from SQL) |
 | Auth | JWT (`golang-jwt/jwt/v5`) + Google OAuth2 |
 | Secrets | [SOPS](https://github.com/getsops/sops) + [age](https://github.com/FiloSottile/age) |
+| Migrations | [goose v3](https://github.com/pressly/goose) (library mode via `cmd/migrate`) |
+| CI | GitHub Actions — build, test, migrate on every push |
 
 ---
 
@@ -147,6 +149,26 @@ When `SpendSense-proto` publishes a new version:
 ```powershell
 make generate   # fetches latest proto from BSR and regenerates Go code
 ```
+
+---
+
+## CI pipeline
+
+Every push to `main`, `develop`, or `feature/**` runs the following in order:
+
+1. **Generate proto code** — pulls the latest proto from BSR and generates Go types
+2. **Decrypt secrets** — decrypts `.env.dev.enc` using the `AGE_SECRET_KEY` repository secret
+3. **Run migrations** — applies any pending migrations against the Neon dev database via `go run ./cmd/migrate up`
+4. **Build** — `go build ./...`
+5. **Test** — `go test ./...`
+
+### Why `cmd/migrate` instead of a CLI tool
+
+We use goose as a **library** (`pressly/goose/v3`) wired to a `pgx/v5` connection rather than the goose or golang-migrate CLI. The CLI tools use `lib/pq` which does not handle Neon's `channel_binding=require` connection parameter, silently falling back to a local socket. `pgx/v5` handles all Neon parameters correctly.
+
+### Adding a GitHub secret
+
+The CI decrypt step requires `AGE_SECRET_KEY` in GitHub repo secrets (Settings → Secrets → Actions). The value is the **full contents** of your age private key file (`%APPDATA%\sops\age\keys.txt`), not the file path.
 
 ---
 
