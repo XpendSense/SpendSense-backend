@@ -40,12 +40,13 @@ type CategoryType struct {
 }
 
 type IncomeToBudgetMapping struct {
-	ID        int32          `json:"id"`
-	BudgetID  uuid.UUID      `json:"budget_id"`
-	UserID    *uuid.UUID     `json:"user_id"`
-	Name      *string        `json:"name"`
-	Amount    pgtype.Numeric `json:"amount"`
-	Recurring bool           `json:"recurring"`
+	ID             int32          `json:"id"`
+	BudgetID       uuid.UUID      `json:"budget_id"`
+	UserID         *uuid.UUID     `json:"user_id"`
+	Name           *string        `json:"name"`
+	Amount         pgtype.Numeric `json:"amount"`
+	Recurring      bool           `json:"recurring"`
+	BudgetPersonID *int32         `json:"budget_person_id"`
 }
 
 type OauthAccount struct {

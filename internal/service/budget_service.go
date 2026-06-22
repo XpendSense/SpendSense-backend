@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -13,10 +14,11 @@ import (
 
 type BudgetService struct {
 	budgets repository.BudgetRepository
+	users   repository.UserRepository
 }
 
-func NewBudgetService(budgets repository.BudgetRepository) *BudgetService {
-	return &BudgetService{budgets: budgets}
+func NewBudgetService(budgets repository.BudgetRepository, users repository.UserRepository) *BudgetService {
+	return &BudgetService{budgets: budgets, users: users}
 }
 
 func (s *BudgetService) List(ctx context.Context, userID uuid.UUID) ([]db.Budget, error) {
@@ -42,7 +44,32 @@ func (s *BudgetService) Create(ctx context.Context, userID uuid.UUID, name strin
 	if exists {
 		return db.Budget{}, apperr.Duplicate("budget", "name", name)
 	}
-	return s.budgets.Create(ctx, db.CreateBudgetParams{UserID: userID, Name: name})
+	budget, err := s.budgets.Create(ctx, db.CreateBudgetParams{UserID: userID, Name: name})
+	if err != nil {
+		return db.Budget{}, err
+	}
+	// Auto-add budget owner as the first BudgetPerson.
+	owner, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return budget, nil // non-fatal: budget was created
+	}
+	parts := []string{}
+	if owner.FirstName != nil {
+		parts = append(parts, *owner.FirstName)
+	}
+	if owner.LastName != nil {
+		parts = append(parts, *owner.LastName)
+	}
+	displayName := strings.Join(parts, " ")
+	if displayName == "" {
+		displayName = owner.Email
+	}
+	_, _ = s.budgets.AddPerson(ctx, db.AddBudgetPersonParams{
+		BudgetID: budget.ID,
+		UserName: &displayName,
+		UserID:   &userID,
+	})
+	return budget, nil
 }
 
 func (s *BudgetService) Update(ctx context.Context, id, userID uuid.UUID, name string, active bool) (db.Budget, error) {
@@ -112,10 +139,10 @@ func (s *BudgetService) RemovePerson(ctx context.Context, budgetID uuid.UUID, pe
 // ── Income ────────────────────────────────────────────────────────────────────
 
 type IncomeInput struct {
-	Name      string
-	Amount    pgtype.Numeric
-	Recurring bool
-	UserID    *uuid.UUID
+	Name           string
+	Amount         pgtype.Numeric
+	Recurring      bool
+	BudgetPersonID *int32
 }
 
 func (s *BudgetService) AddIncome(ctx context.Context, budgetID, ownerID uuid.UUID, entries []IncomeInput) ([]db.IncomeToBudgetMapping, error) {
@@ -125,11 +152,11 @@ func (s *BudgetService) AddIncome(ctx context.Context, budgetID, ownerID uuid.UU
 	var results []db.IncomeToBudgetMapping
 	for _, e := range entries {
 		m, err := s.budgets.AddIncome(ctx, db.AddIncomeEntryParams{
-			BudgetID:  budgetID,
-			UserID:    e.UserID,
-			Name:      &e.Name,
-			Amount:    e.Amount,
-			Recurring: e.Recurring,
+			BudgetID:       budgetID,
+			Name:           &e.Name,
+			Amount:         e.Amount,
+			Recurring:      e.Recurring,
+			BudgetPersonID: e.BudgetPersonID,
 		})
 		if err != nil {
 			return nil, err
@@ -146,16 +173,17 @@ func (s *BudgetService) ListIncome(ctx context.Context, budgetID, userID uuid.UU
 	return s.budgets.ListIncome(ctx, budgetID)
 }
 
-func (s *BudgetService) UpdateIncome(ctx context.Context, incomeID int32, budgetID, userID uuid.UUID, name string, amount pgtype.Numeric, recurring bool) (db.IncomeToBudgetMapping, error) {
+func (s *BudgetService) UpdateIncome(ctx context.Context, incomeID int32, budgetID, userID uuid.UUID, name string, amount pgtype.Numeric, recurring bool, budgetPersonID *int32) (db.IncomeToBudgetMapping, error) {
 	if _, err := s.Get(ctx, budgetID, userID); err != nil {
 		return db.IncomeToBudgetMapping{}, err
 	}
 	return s.budgets.UpdateIncome(ctx, db.UpdateIncomeEntryParams{
-		ID:        incomeID,
-		BudgetID:  budgetID,
-		Name:      &name,
-		Amount:    amount,
-		Recurring: recurring,
+		ID:             incomeID,
+		BudgetID:       budgetID,
+		Name:           &name,
+		Amount:         amount,
+		Recurring:      recurring,
+		BudgetPersonID: budgetPersonID,
 	})
 }
 

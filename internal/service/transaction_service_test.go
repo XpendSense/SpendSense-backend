@@ -139,7 +139,12 @@ func (m *mockTransactionRepo) DeletePaymentMethodAndReassign(ctx context.Context
 // ── Mock budget repo ──────────────────────────────────────────────────────────
 
 type mockBudgetRepo struct {
-	getByID func(context.Context, uuid.UUID) (db.Budget, error)
+	getByID             func(context.Context, uuid.UUID) (db.Budget, error)
+	existsByNameAndUser func(context.Context, string, uuid.UUID) (bool, error)
+	create              func(context.Context, db.CreateBudgetParams) (db.Budget, error)
+	addPerson           func(context.Context, db.AddBudgetPersonParams) (db.BudgetToUserMapping, error)
+	addIncome           func(context.Context, db.AddIncomeEntryParams) (db.IncomeToBudgetMapping, error)
+	updateIncome        func(context.Context, db.UpdateIncomeEntryParams) (db.IncomeToBudgetMapping, error)
 }
 
 func (m *mockBudgetRepo) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.Budget, error) {
@@ -154,11 +159,17 @@ func (m *mockBudgetRepo) GetByID(ctx context.Context, id uuid.UUID) (db.Budget, 
 }
 
 func (m *mockBudgetRepo) ExistsByNameAndUser(ctx context.Context, name string, userID uuid.UUID) (bool, error) {
+	if m.existsByNameAndUser != nil {
+		return m.existsByNameAndUser(ctx, name, userID)
+	}
 	return false, nil
 }
 
 func (m *mockBudgetRepo) Create(ctx context.Context, arg db.CreateBudgetParams) (db.Budget, error) {
-	return db.Budget{}, nil
+	if m.create != nil {
+		return m.create(ctx, arg)
+	}
+	return db.Budget{ID: uuid.New(), UserID: arg.UserID, Name: arg.Name}, nil
 }
 
 func (m *mockBudgetRepo) Update(ctx context.Context, arg db.UpdateBudgetParams) (db.Budget, error) {
@@ -178,7 +189,10 @@ func (m *mockBudgetRepo) ExistsPerson(ctx context.Context, budgetID uuid.UUID, u
 }
 
 func (m *mockBudgetRepo) AddPerson(ctx context.Context, arg db.AddBudgetPersonParams) (db.BudgetToUserMapping, error) {
-	return db.BudgetToUserMapping{}, nil
+	if m.addPerson != nil {
+		return m.addPerson(ctx, arg)
+	}
+	return db.BudgetToUserMapping{BudgetID: arg.BudgetID, UserName: arg.UserName, UserID: arg.UserID}, nil
 }
 
 func (m *mockBudgetRepo) RemovePerson(ctx context.Context, arg db.RemoveBudgetPersonParams) error {
@@ -190,11 +204,30 @@ func (m *mockBudgetRepo) ListIncome(ctx context.Context, budgetID uuid.UUID) ([]
 }
 
 func (m *mockBudgetRepo) AddIncome(ctx context.Context, arg db.AddIncomeEntryParams) (db.IncomeToBudgetMapping, error) {
-	return db.IncomeToBudgetMapping{}, nil
+	if m.addIncome != nil {
+		return m.addIncome(ctx, arg)
+	}
+	return db.IncomeToBudgetMapping{
+		BudgetID:       arg.BudgetID,
+		Name:           arg.Name,
+		Amount:         arg.Amount,
+		Recurring:      arg.Recurring,
+		BudgetPersonID: arg.BudgetPersonID,
+	}, nil
 }
 
 func (m *mockBudgetRepo) UpdateIncome(ctx context.Context, arg db.UpdateIncomeEntryParams) (db.IncomeToBudgetMapping, error) {
-	return db.IncomeToBudgetMapping{}, nil
+	if m.updateIncome != nil {
+		return m.updateIncome(ctx, arg)
+	}
+	return db.IncomeToBudgetMapping{
+		ID:             arg.ID,
+		BudgetID:       arg.BudgetID,
+		Name:           arg.Name,
+		Amount:         arg.Amount,
+		Recurring:      arg.Recurring,
+		BudgetPersonID: arg.BudgetPersonID,
+	}, nil
 }
 
 func (m *mockBudgetRepo) DeleteIncome(ctx context.Context, arg db.DeleteIncomeEntryParams) error {

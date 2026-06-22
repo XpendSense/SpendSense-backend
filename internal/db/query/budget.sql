@@ -51,21 +51,21 @@ DELETE FROM budget_to_user_mapping
 WHERE id = $1 AND budget_id = $2;
 
 -- name: ListIncomeEntries :many
-SELECT id, budget_id, user_id, name, amount, recurring
+SELECT id, budget_id, user_id, name, amount, recurring, budget_person_id
 FROM income_to_budget_mapping
 WHERE budget_id = $1
 ORDER BY id;
 
 -- name: AddIncomeEntry :one
-INSERT INTO income_to_budget_mapping (budget_id, user_id, name, amount, recurring)
+INSERT INTO income_to_budget_mapping (budget_id, name, amount, recurring, budget_person_id)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_id, user_id, name, amount, recurring;
+RETURNING id, budget_id, user_id, name, amount, recurring, budget_person_id;
 
 -- name: UpdateIncomeEntry :one
 UPDATE income_to_budget_mapping
-SET name = $3, amount = $4, recurring = $5
+SET name = $3, amount = $4, recurring = $5, budget_person_id = $6
 WHERE id = $1 AND budget_id = $2
-RETURNING id, budget_id, user_id, name, amount, recurring;
+RETURNING id, budget_id, user_id, name, amount, recurring, budget_person_id;
 
 -- name: DeleteIncomeEntry :exec
 DELETE FROM income_to_budget_mapping

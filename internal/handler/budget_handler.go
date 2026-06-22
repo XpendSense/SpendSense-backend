@@ -190,19 +190,16 @@ func (h *BudgetHandler) AddIncomeEntry(ctx context.Context, req *connect.Request
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	var entryUserID *uuid.UUID
-	if req.Msg.UserId != "" {
-		uid, err := uuid.Parse(req.Msg.UserId)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		}
-		entryUserID = &uid
+	var personID *int32
+	if req.Msg.BudgetPersonId != 0 {
+		v := int32(req.Msg.BudgetPersonId)
+		personID = &v
 	}
 	entries, svcErr := h.budgets.AddIncome(ctx, budgetID, userID, []service.IncomeInput{{
-		Name:      req.Msg.Name,
-		Amount:    numericFromMoney(req.Msg.Amount),
-		Recurring: req.Msg.Recurring,
-		UserID:    entryUserID,
+		Name:           req.Msg.Name,
+		Amount:         numericFromMoney(req.Msg.Amount),
+		Recurring:      req.Msg.Recurring,
+		BudgetPersonID: personID,
 	}})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -239,7 +236,12 @@ func (h *BudgetHandler) UpdateIncomeEntry(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	entry, svcErr := h.budgets.UpdateIncome(ctx, int32(req.Msg.Id), budgetID, userID, req.Msg.Name, numericFromMoney(req.Msg.Amount), req.Msg.Recurring)
+	var personID *int32
+	if req.Msg.BudgetPersonId != 0 {
+		v := int32(req.Msg.BudgetPersonId)
+		personID = &v
+	}
+	entry, svcErr := h.budgets.UpdateIncome(ctx, int32(req.Msg.Id), budgetID, userID, req.Msg.Name, numericFromMoney(req.Msg.Amount), req.Msg.Recurring, personID)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
@@ -609,13 +611,17 @@ func toProtoPerson(m db.BudgetToUserMapping) *v1.BudgetPerson {
 }
 
 func toProtoIncome(m db.IncomeToBudgetMapping) *v1.IncomeEntry {
+	var personID int64
+	if m.BudgetPersonID != nil {
+		personID = int64(*m.BudgetPersonID)
+	}
 	return &v1.IncomeEntry{
-		Id:        int64(m.ID),
-		BudgetId:  m.BudgetID.String(),
-		UserId:    nullUUID(m.UserID),
-		Name:      nullStr(m.Name),
-		Amount:    moneyFromNumeric(m.Amount),
-		Recurring: m.Recurring,
+		Id:             int64(m.ID),
+		BudgetId:       m.BudgetID.String(),
+		Name:           nullStr(m.Name),
+		Amount:         moneyFromNumeric(m.Amount),
+		Recurring:      m.Recurring,
+		BudgetPersonId: personID,
 	}
 }
 

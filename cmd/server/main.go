@@ -58,7 +58,7 @@ func main() {
 	// Services
 	authSvc         := service.NewAuthService(userRepo, jwtSvc, googleOAuth)
 	userSvc         := service.NewUserService(userRepo)
-	budgetSvc       := service.NewBudgetService(budgetRepo)
+	budgetSvc       := service.NewBudgetService(budgetRepo, userRepo)
 	transactionSvc  := service.NewTransactionService(transactionRepo, budgetRepo)
 
 	// Procedures that don't require authentication

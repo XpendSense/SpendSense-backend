@@ -37,26 +37,26 @@ func (q *Queries) AddBudgetPerson(ctx context.Context, arg AddBudgetPersonParams
 }
 
 const addIncomeEntry = `-- name: AddIncomeEntry :one
-INSERT INTO income_to_budget_mapping (budget_id, user_id, name, amount, recurring)
+INSERT INTO income_to_budget_mapping (budget_id, name, amount, recurring, budget_person_id)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_id, user_id, name, amount, recurring
+RETURNING id, budget_id, user_id, name, amount, recurring, budget_person_id
 `
 
 type AddIncomeEntryParams struct {
-	BudgetID  uuid.UUID      `json:"budget_id"`
-	UserID    *uuid.UUID     `json:"user_id"`
-	Name      *string        `json:"name"`
-	Amount    pgtype.Numeric `json:"amount"`
-	Recurring bool           `json:"recurring"`
+	BudgetID       uuid.UUID      `json:"budget_id"`
+	Name           *string        `json:"name"`
+	Amount         pgtype.Numeric `json:"amount"`
+	Recurring      bool           `json:"recurring"`
+	BudgetPersonID *int32         `json:"budget_person_id"`
 }
 
 func (q *Queries) AddIncomeEntry(ctx context.Context, arg AddIncomeEntryParams) (IncomeToBudgetMapping, error) {
 	row := q.db.QueryRow(ctx, addIncomeEntry,
 		arg.BudgetID,
-		arg.UserID,
 		arg.Name,
 		arg.Amount,
 		arg.Recurring,
+		arg.BudgetPersonID,
 	)
 	var i IncomeToBudgetMapping
 	err := row.Scan(
@@ -66,6 +66,7 @@ func (q *Queries) AddIncomeEntry(ctx context.Context, arg AddIncomeEntryParams) 
 		&i.Name,
 		&i.Amount,
 		&i.Recurring,
+		&i.BudgetPersonID,
 	)
 	return i, err
 }
@@ -244,7 +245,7 @@ func (q *Queries) ListBudgetsByUser(ctx context.Context, userID uuid.UUID) ([]Bu
 }
 
 const listIncomeEntries = `-- name: ListIncomeEntries :many
-SELECT id, budget_id, user_id, name, amount, recurring
+SELECT id, budget_id, user_id, name, amount, recurring, budget_person_id
 FROM income_to_budget_mapping
 WHERE budget_id = $1
 ORDER BY id
@@ -266,6 +267,7 @@ func (q *Queries) ListIncomeEntries(ctx context.Context, budgetID uuid.UUID) ([]
 			&i.Name,
 			&i.Amount,
 			&i.Recurring,
+			&i.BudgetPersonID,
 		); err != nil {
 			return nil, err
 		}
@@ -321,17 +323,18 @@ func (q *Queries) UpdateBudget(ctx context.Context, arg UpdateBudgetParams) (Bud
 
 const updateIncomeEntry = `-- name: UpdateIncomeEntry :one
 UPDATE income_to_budget_mapping
-SET name = $3, amount = $4, recurring = $5
+SET name = $3, amount = $4, recurring = $5, budget_person_id = $6
 WHERE id = $1 AND budget_id = $2
-RETURNING id, budget_id, user_id, name, amount, recurring
+RETURNING id, budget_id, user_id, name, amount, recurring, budget_person_id
 `
 
 type UpdateIncomeEntryParams struct {
-	ID        int32          `json:"id"`
-	BudgetID  uuid.UUID      `json:"budget_id"`
-	Name      *string        `json:"name"`
-	Amount    pgtype.Numeric `json:"amount"`
-	Recurring bool           `json:"recurring"`
+	ID             int32          `json:"id"`
+	BudgetID       uuid.UUID      `json:"budget_id"`
+	Name           *string        `json:"name"`
+	Amount         pgtype.Numeric `json:"amount"`
+	Recurring      bool           `json:"recurring"`
+	BudgetPersonID *int32         `json:"budget_person_id"`
 }
 
 func (q *Queries) UpdateIncomeEntry(ctx context.Context, arg UpdateIncomeEntryParams) (IncomeToBudgetMapping, error) {
@@ -341,6 +344,7 @@ func (q *Queries) UpdateIncomeEntry(ctx context.Context, arg UpdateIncomeEntryPa
 		arg.Name,
 		arg.Amount,
 		arg.Recurring,
+		arg.BudgetPersonID,
 	)
 	var i IncomeToBudgetMapping
 	err := row.Scan(
@@ -350,6 +354,7 @@ func (q *Queries) UpdateIncomeEntry(ctx context.Context, arg UpdateIncomeEntryPa
 		&i.Name,
 		&i.Amount,
 		&i.Recurring,
+		&i.BudgetPersonID,
 	)
 	return i, err
 }
