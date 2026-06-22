@@ -23,3 +23,9 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      - name: Migrate dev
+        if: github.ref == 'refs/heads/develop'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEV }}
+        run: go run ./cmd/migrate up
