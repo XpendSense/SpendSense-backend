@@ -8,6 +8,7 @@ sql:
       - "internal/db/migrations/000003_payment_method_soft_delete.sql"
       - "internal/db/migrations/000004_category_soft_delete.sql"
       - "internal/db/migrations/000005_income_person_attribution.sql"
+      - "internal/db/migrations/000006_payment_method_person_attribution.sql"
     gen:
       go:
         package: "db"

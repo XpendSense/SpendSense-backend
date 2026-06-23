@@ -492,12 +492,15 @@ func (h *BudgetHandler) DeleteCategory(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&v1.DeleteCategoryResponse{}), nil
 }
 
-func (h *BudgetHandler) ListPaymentMethods(ctx context.Context, _ *connect.Request[v1.ListPaymentMethodsRequest]) (*connect.Response[v1.ListPaymentMethodsResponse], error) {
-	userID, err := h.currentUserID(ctx)
-	if err != nil {
+func (h *BudgetHandler) ListPaymentMethods(ctx context.Context, req *connect.Request[v1.ListPaymentMethodsRequest]) (*connect.Response[v1.ListPaymentMethodsResponse], error) {
+	if _, err := h.currentUserID(ctx); err != nil {
 		return nil, err
 	}
-	methods, svcErr := h.transactions.ListPaymentMethods(ctx, userID)
+	budgetID, err := uuid.Parse(req.Msg.BudgetId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	methods, svcErr := h.transactions.ListPaymentMethods(ctx, budgetID)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
@@ -507,7 +510,11 @@ func (h *BudgetHandler) ListPaymentMethods(ctx context.Context, _ *connect.Reque
 		if m.PaymentTypeID != nil {
 			typeVal = v1.PaymentType(*m.PaymentTypeID)
 		}
-		protos[i] = &v1.PaymentMethod{Id: m.ID.String(), Name: m.Name, Type: typeVal}
+		var personID int64
+		if m.BudgetPersonID != nil {
+			personID = int64(*m.BudgetPersonID)
+		}
+		protos[i] = &v1.PaymentMethod{Id: m.ID.String(), Name: m.Name, Type: typeVal, BudgetPersonId: personID}
 	}
 	return connect.NewResponse(&v1.ListPaymentMethodsResponse{Methods: protos}), nil
 }
@@ -518,19 +525,30 @@ func (h *BudgetHandler) CreatePaymentMethod(ctx context.Context, req *connect.Re
 		return nil, err
 	}
 	typeID := int32(req.Msg.Type)
+	var personID *int32
+	if req.Msg.BudgetPersonId != 0 {
+		v := int32(req.Msg.BudgetPersonId)
+		personID = &v
+	}
 	method, svcErr := h.transactions.CreatePaymentMethod(ctx, db.CreatePaymentMethodParams{
-		Name:          req.Msg.Name,
-		PaymentTypeID: &typeID,
-		UserID:        &userID,
+		Name:           req.Msg.Name,
+		PaymentTypeID:  &typeID,
+		UserID:         &userID,
+		BudgetPersonID: personID,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
+	var retPersonID int64
+	if method.BudgetPersonID != nil {
+		retPersonID = int64(*method.BudgetPersonID)
+	}
 	return connect.NewResponse(&v1.CreatePaymentMethodResponse{
 		Method: &v1.PaymentMethod{
-			Id:   method.ID.String(),
-			Name: method.Name,
-			Type: req.Msg.Type,
+			Id:             method.ID.String(),
+			Name:           method.Name,
+			Type:           req.Msg.Type,
+			BudgetPersonId: retPersonID,
 		},
 	}), nil
 }
@@ -556,11 +574,16 @@ func (h *BudgetHandler) UpdatePaymentMethod(ctx context.Context, req *connect.Re
 	if method.PaymentTypeID != nil {
 		typeVal = v1.PaymentType(*method.PaymentTypeID)
 	}
+	var personID int64
+	if method.BudgetPersonID != nil {
+		personID = int64(*method.BudgetPersonID)
+	}
 	return connect.NewResponse(&v1.UpdatePaymentMethodResponse{
 		Method: &v1.PaymentMethod{
-			Id:   method.ID.String(),
-			Name: method.Name,
-			Type: typeVal,
+			Id:             method.ID.String(),
+			Name:           method.Name,
+			Type:           typeVal,
+			BudgetPersonId: personID,
 		},
 	}), nil
 }

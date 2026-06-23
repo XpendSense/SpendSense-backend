@@ -105,8 +105,8 @@ func (s *TransactionService) DeleteCategory(ctx context.Context, id, replacement
 	})
 }
 
-func (s *TransactionService) ListPaymentMethods(ctx context.Context, userID uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
-	return s.transactions.ListPaymentMethods(ctx, userID)
+func (s *TransactionService) ListPaymentMethods(ctx context.Context, budgetID uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
+	return s.transactions.ListPaymentMethods(ctx, budgetID)
 }
 
 func (s *TransactionService) CreatePaymentMethod(ctx context.Context, arg db.CreatePaymentMethodParams) (db.PaymentMethod, error) {

@@ -25,7 +25,7 @@ type TransactionRepository interface {
 	DeleteCategoryAndReassign(ctx context.Context, arg db.DeleteCategoryAndReassignParams) error
 
 	GetPaymentMethod(ctx context.Context, id uuid.UUID) (db.PaymentMethod, error)
-	ListPaymentMethods(ctx context.Context, userID uuid.UUID) ([]db.ListPaymentMethodsRow, error)
+	ListPaymentMethods(ctx context.Context, budgetID uuid.UUID) ([]db.ListPaymentMethodsRow, error)
 	CreatePaymentMethod(ctx context.Context, arg db.CreatePaymentMethodParams) (db.PaymentMethod, error)
 	UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
 	DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error
@@ -95,8 +95,8 @@ func (r *transactionRepository) DeleteCategoryAndReassign(ctx context.Context, a
 	return r.q.DeleteCategoryAndReassign(ctx, arg)
 }
 
-func (r *transactionRepository) ListPaymentMethods(ctx context.Context, userID uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
-	return r.q.ListPaymentMethods(ctx, userID)
+func (r *transactionRepository) ListPaymentMethods(ctx context.Context, budgetID uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
+	return r.q.ListPaymentMethods(ctx, budgetID)
 }
 
 func (r *transactionRepository) CreatePaymentMethod(ctx context.Context, arg db.CreatePaymentMethodParams) (db.PaymentMethod, error) {

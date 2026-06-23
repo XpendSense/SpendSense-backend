@@ -45,19 +45,25 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 }
 
 const createPaymentMethod = `-- name: CreatePaymentMethod :one
-INSERT INTO payment_methods (name, payment_type_id, user_id)
-VALUES ($1, $2, $3)
-RETURNING id, name, payment_type_id, user_id, is_active
+INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id)
+VALUES ($1, $2, $3, $4)
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id
 `
 
 type CreatePaymentMethodParams struct {
-	Name          string     `json:"name"`
-	PaymentTypeID *int32     `json:"payment_type_id"`
-	UserID        *uuid.UUID `json:"user_id"`
+	Name           string     `json:"name"`
+	PaymentTypeID  *int32     `json:"payment_type_id"`
+	UserID         *uuid.UUID `json:"user_id"`
+	BudgetPersonID *int32     `json:"budget_person_id"`
 }
 
 func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMethodParams) (PaymentMethod, error) {
-	row := q.db.QueryRow(ctx, createPaymentMethod, arg.Name, arg.PaymentTypeID, arg.UserID)
+	row := q.db.QueryRow(ctx, createPaymentMethod,
+		arg.Name,
+		arg.PaymentTypeID,
+		arg.UserID,
+		arg.BudgetPersonID,
+	)
 	var i PaymentMethod
 	err := row.Scan(
 		&i.ID,
@@ -65,6 +71,7 @@ func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMeth
 		&i.PaymentTypeID,
 		&i.UserID,
 		&i.IsActive,
+		&i.BudgetPersonID,
 	)
 	return i, err
 }
@@ -224,7 +231,7 @@ func (q *Queries) GetCategory(ctx context.Context, id int32) (GetCategoryRow, er
 }
 
 const getPaymentMethod = `-- name: GetPaymentMethod :one
-SELECT id, name, payment_type_id, user_id, is_active
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id
 FROM payment_methods
 WHERE id = $1
 LIMIT 1
@@ -239,6 +246,7 @@ func (q *Queries) GetPaymentMethod(ctx context.Context, id uuid.UUID) (PaymentMe
 		&i.PaymentTypeID,
 		&i.UserID,
 		&i.IsActive,
+		&i.BudgetPersonID,
 	)
 	return i, err
 }
@@ -313,19 +321,23 @@ func (q *Queries) ListCategories(ctx context.Context, dollar_1 uuid.UUID) ([]Lis
 }
 
 const listPaymentMethods = `-- name: ListPaymentMethods :many
-SELECT pm.id, pm.name, pm.payment_type_id, pm.user_id, pt.name AS type_name
+SELECT pm.id, pm.name, pm.payment_type_id, pm.user_id, pt.name AS type_name, pm.budget_person_id
 FROM payment_methods pm
 LEFT JOIN payment_type pt ON pm.payment_type_id = pt.id
-WHERE pm.user_id = $1::uuid AND pm.is_active = TRUE
+WHERE pm.budget_person_id IN (
+    SELECT id FROM budget_to_user_mapping WHERE budget_id = $1::uuid
+)
+AND pm.is_active = TRUE
 ORDER BY pm.name
 `
 
 type ListPaymentMethodsRow struct {
-	ID            uuid.UUID  `json:"id"`
-	Name          string     `json:"name"`
-	PaymentTypeID *int32     `json:"payment_type_id"`
-	UserID        *uuid.UUID `json:"user_id"`
-	TypeName      *string    `json:"type_name"`
+	ID             uuid.UUID  `json:"id"`
+	Name           string     `json:"name"`
+	PaymentTypeID  *int32     `json:"payment_type_id"`
+	UserID         *uuid.UUID `json:"user_id"`
+	TypeName       *string    `json:"type_name"`
+	BudgetPersonID *int32     `json:"budget_person_id"`
 }
 
 func (q *Queries) ListPaymentMethods(ctx context.Context, dollar_1 uuid.UUID) ([]ListPaymentMethodsRow, error) {
@@ -343,6 +355,7 @@ func (q *Queries) ListPaymentMethods(ctx context.Context, dollar_1 uuid.UUID) ([
 			&i.PaymentTypeID,
 			&i.UserID,
 			&i.TypeName,
+			&i.BudgetPersonID,
 		); err != nil {
 			return nil, err
 		}
@@ -489,7 +502,7 @@ const updatePaymentMethod = `-- name: UpdatePaymentMethod :one
 UPDATE payment_methods
 SET name = $1
 WHERE id = $2 AND user_id = $3::uuid
-RETURNING id, name, payment_type_id, user_id, is_active
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id
 `
 
 type UpdatePaymentMethodParams struct {
@@ -507,6 +520,7 @@ func (q *Queries) UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMeth
 		&i.PaymentTypeID,
 		&i.UserID,
 		&i.IsActive,
+		&i.BudgetPersonID,
 	)
 	return i, err
 }

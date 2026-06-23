@@ -58,11 +58,12 @@ type OauthAccount struct {
 }
 
 type PaymentMethod struct {
-	ID            uuid.UUID  `json:"id"`
-	Name          string     `json:"name"`
-	PaymentTypeID *int32     `json:"payment_type_id"`
-	UserID        *uuid.UUID `json:"user_id"`
-	IsActive      bool       `json:"is_active"`
+	ID             uuid.UUID  `json:"id"`
+	Name           string     `json:"name"`
+	PaymentTypeID  *int32     `json:"payment_type_id"`
+	UserID         *uuid.UUID `json:"user_id"`
+	IsActive       bool       `json:"is_active"`
+	BudgetPersonID *int32     `json:"budget_person_id"`
 }
 
 type PaymentType struct {
