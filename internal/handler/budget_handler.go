@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -524,12 +525,12 @@ func (h *BudgetHandler) CreatePaymentMethod(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, err
 	}
-	typeID := int32(req.Msg.Type)
-	var personID *int32
-	if req.Msg.BudgetPersonId != 0 {
-		v := int32(req.Msg.BudgetPersonId)
-		personID = &v
+	if req.Msg.BudgetPersonId == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("budget_person_id is required"))
 	}
+	typeID := int32(req.Msg.Type)
+	v := int32(req.Msg.BudgetPersonId)
+	personID := &v
 	method, svcErr := h.transactions.CreatePaymentMethod(ctx, db.CreatePaymentMethodParams{
 		Name:           req.Msg.Name,
 		PaymentTypeID:  &typeID,
