@@ -11,19 +11,23 @@ import (
 
 type TransactionService struct {
 	transactions repository.TransactionRepository
-	budgets      repository.BudgetRepository
+	profiles     repository.BudgetProfileRepository
 }
 
-func NewTransactionService(transactions repository.TransactionRepository, budgets repository.BudgetRepository) *TransactionService {
-	return &TransactionService{transactions: transactions, budgets: budgets}
+func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository) *TransactionService {
+	return &TransactionService{transactions: transactions, profiles: profiles}
 }
 
-func (s *TransactionService) assertBudgetOwner(ctx context.Context, budgetID, userID uuid.UUID) error {
-	budget, err := s.budgets.GetByID(ctx, budgetID)
+func (s *TransactionService) assertPeriodOwner(ctx context.Context, periodID, userID uuid.UUID) error {
+	period, err := s.profiles.GetPeriodByID(ctx, periodID)
 	if err != nil {
 		return err
 	}
-	if budget.UserID != userID {
+	profile, err := s.profiles.GetByID(ctx, period.BudgetProfileID)
+	if err != nil {
+		return err
+	}
+	if profile.UserID != userID {
 		return apperr.Forbidden("access denied")
 	}
 	return nil
@@ -34,33 +38,45 @@ func (s *TransactionService) GetByID(ctx context.Context, id uuid.UUID) (db.Tran
 }
 
 func (s *TransactionService) List(ctx context.Context, arg db.ListTransactionsParams, userID uuid.UUID) ([]db.Transaction, error) {
-	if err := s.assertBudgetOwner(ctx, arg.BudgetID, userID); err != nil {
+	if err := s.assertPeriodOwner(ctx, arg.BudgetPeriodID, userID); err != nil {
 		return nil, err
 	}
 	return s.transactions.List(ctx, arg)
 }
 
 func (s *TransactionService) Create(ctx context.Context, arg db.CreateTransactionParams, userID uuid.UUID) (db.Transaction, error) {
-	if arg.BudgetID != nil {
-		if err := s.assertBudgetOwner(ctx, *arg.BudgetID, userID); err != nil {
+	if arg.BudgetPeriodID != nil {
+		if err := s.assertPeriodOwner(ctx, *arg.BudgetPeriodID, userID); err != nil {
 			return db.Transaction{}, err
 		}
 	}
 	return s.transactions.Create(ctx, arg)
 }
 
-func (s *TransactionService) Update(ctx context.Context, arg db.UpdateTransactionParams, budgetID, userID uuid.UUID) (db.Transaction, error) {
-	if err := s.assertBudgetOwner(ctx, budgetID, userID); err != nil {
+func (s *TransactionService) Update(ctx context.Context, arg db.UpdateTransactionParams, userID uuid.UUID) (db.Transaction, error) {
+	tx, err := s.transactions.GetByID(ctx, arg.ID)
+	if err != nil {
 		return db.Transaction{}, err
+	}
+	if tx.BudgetPeriodID != nil {
+		if err := s.assertPeriodOwner(ctx, *tx.BudgetPeriodID, userID); err != nil {
+			return db.Transaction{}, err
+		}
 	}
 	return s.transactions.Update(ctx, arg)
 }
 
-func (s *TransactionService) Delete(ctx context.Context, id, budgetID, userID uuid.UUID) error {
-	if err := s.assertBudgetOwner(ctx, budgetID, userID); err != nil {
+func (s *TransactionService) Delete(ctx context.Context, id, userID uuid.UUID) error {
+	tx, err := s.transactions.GetByID(ctx, id)
+	if err != nil {
 		return err
 	}
-	return s.transactions.Delete(ctx, db.DeleteTransactionParams{ID: id, BudgetID: &budgetID})
+	if tx.BudgetPeriodID != nil {
+		if err := s.assertPeriodOwner(ctx, *tx.BudgetPeriodID, userID); err != nil {
+			return err
+		}
+	}
+	return s.transactions.Delete(ctx, db.DeleteTransactionParams{ID: id, BudgetPeriodID: tx.BudgetPeriodID})
 }
 
 func (s *TransactionService) GetCategory(ctx context.Context, id int32) (db.GetCategoryRow, error) {
@@ -79,7 +95,7 @@ func (s *TransactionService) UpdateCategory(ctx context.Context, arg db.UpdateCa
 	return s.transactions.UpdateCategory(ctx, arg)
 }
 
-func (s *TransactionService) DeleteCategory(ctx context.Context, id, replacementID int32, budgetID, userID uuid.UUID) error {
+func (s *TransactionService) DeleteCategory(ctx context.Context, id, replacementID int32, userID uuid.UUID) error {
 	cat, err := s.transactions.GetCategory(ctx, id)
 	if err != nil {
 		return err
@@ -101,12 +117,11 @@ func (s *TransactionService) DeleteCategory(ctx context.Context, id, replacement
 		ID:            id,
 		UserID:        userID,
 		ReplacementID: &replacementID,
-		BudgetID:      budgetID,
 	})
 }
 
-func (s *TransactionService) ListPaymentMethods(ctx context.Context, budgetID uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
-	return s.transactions.ListPaymentMethods(ctx, budgetID)
+func (s *TransactionService) ListPaymentMethods(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListPaymentMethodsRow, error) {
+	return s.transactions.ListPaymentMethods(ctx, budgetProfileID)
 }
 
 func (s *TransactionService) CreatePaymentMethod(ctx context.Context, arg db.CreatePaymentMethodParams) (db.PaymentMethod, error) {
@@ -117,7 +132,7 @@ func (s *TransactionService) UpdatePaymentMethod(ctx context.Context, arg db.Upd
 	return s.transactions.UpdatePaymentMethod(ctx, arg)
 }
 
-func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replacementID, budgetID, userID uuid.UUID) error {
+func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replacementID, budgetProfileID, userID uuid.UUID) error {
 	method, err := s.transactions.GetPaymentMethod(ctx, id)
 	if err != nil {
 		return err
@@ -133,9 +148,9 @@ func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replac
 		return apperr.Forbidden("replacement payment method is not accessible")
 	}
 	return s.transactions.DeletePaymentMethodAndReassign(ctx, db.DeletePaymentMethodAndReassignParams{
-		ID:            id,
-		UserID:        userID,
-		ReplacementID: replacementID,
-		BudgetID:      budgetID,
+		ID:              id,
+		UserID:          userID,
+		ReplacementID:   replacementID,
+		BudgetProfileID: budgetProfileID,
 	})
 }

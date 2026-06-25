@@ -47,19 +47,19 @@ func main() {
 	queries := sqlcdb.New(pool)
 
 	// Repositories
-	userRepo        := repository.NewUserRepository(queries)
-	budgetRepo      := repository.NewBudgetRepository(queries)
-	transactionRepo := repository.NewTransactionRepository(queries)
+	userRepo           := repository.NewUserRepository(queries)
+	budgetProfileRepo  := repository.NewBudgetProfileRepository(queries)
+	transactionRepo    := repository.NewTransactionRepository(queries)
 
 	// Auth
 	jwtSvc     := auth.NewJWTService(cfg.JWTSecret, cfg.JWTLifetimeSeconds)
 	googleOAuth := auth.NewGoogleOAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, "")
 
 	// Services
-	authSvc         := service.NewAuthService(userRepo, jwtSvc, googleOAuth)
-	userSvc         := service.NewUserService(userRepo)
-	budgetSvc       := service.NewBudgetService(budgetRepo, userRepo)
-	transactionSvc  := service.NewTransactionService(transactionRepo, budgetRepo)
+	authSvc        := service.NewAuthService(userRepo, jwtSvc, googleOAuth)
+	userSvc        := service.NewUserService(userRepo)
+	profileSvc     := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, userRepo)
+	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo)
 
 	// Procedures that don't require authentication
 	bypass := map[string]bool{
@@ -77,7 +77,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle(spendsensev1connect.NewAuthServiceHandler(handler.NewAuthHandler(authSvc), interceptors))
 	mux.Handle(spendsensev1connect.NewUserServiceHandler(handler.NewUserHandler(userSvc), interceptors))
-	mux.Handle(spendsensev1connect.NewBudgetServiceHandler(handler.NewBudgetHandler(budgetSvc, transactionSvc), interceptors))
+	mux.Handle(spendsensev1connect.NewBudgetServiceHandler(handler.NewBudgetHandler(profileSvc, transactionSvc), interceptors))
 
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins:   cfg.CORSAllowedOrigins,

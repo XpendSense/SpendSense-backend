@@ -10,6 +10,7 @@ sql:
       - "internal/db/migrations/000005_income_person_attribution.sql"
       - "internal/db/migrations/000006_payment_method_person_attribution.sql"
       - "internal/db/migrations/000007_budget_person_soft_delete.sql"
+      - "internal/db/migrations/000008_budget_rework.sql"
     gen:
       go:
         package: "db"

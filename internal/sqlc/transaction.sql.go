@@ -79,10 +79,10 @@ func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMeth
 const createTransaction = `-- name: CreateTransaction :one
 INSERT INTO transaction (
     name, amount, planned_amount, date, renewal_date, recurring,
-    budget_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
+    budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
-          budget_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
 `
 
 type CreateTransactionParams struct {
@@ -92,7 +92,7 @@ type CreateTransactionParams struct {
 	Date                   pgtype.Date    `json:"date"`
 	RenewalDate            pgtype.Date    `json:"renewal_date"`
 	Recurring              *bool          `json:"recurring"`
-	BudgetID               *uuid.UUID     `json:"budget_id"`
+	BudgetPeriodID         *uuid.UUID     `json:"budget_period_id"`
 	CategoryID             *int32         `json:"category_id"`
 	PaymentMethodID        *uuid.UUID     `json:"payment_method_id"`
 	TransactionFrequencyID *int32         `json:"transaction_frequency_id"`
@@ -107,7 +107,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		arg.Date,
 		arg.RenewalDate,
 		arg.Recurring,
-		arg.BudgetID,
+		arg.BudgetPeriodID,
 		arg.CategoryID,
 		arg.PaymentMethodID,
 		arg.TransactionFrequencyID,
@@ -122,7 +122,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.Date,
 		&i.RenewalDate,
 		&i.Recurring,
-		&i.BudgetID,
+		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
 		&i.TransactionFrequencyID,
@@ -135,7 +135,6 @@ const deleteCategoryAndReassign = `-- name: DeleteCategoryAndReassign :exec
 WITH moved AS (
     UPDATE transaction SET category_id = $3
     WHERE category_id = $1
-      AND budget_id = $4::uuid
 )
 UPDATE category
 SET is_active = FALSE
@@ -146,16 +145,12 @@ type DeleteCategoryAndReassignParams struct {
 	ID            int32     `json:"id"`
 	UserID        uuid.UUID `json:"user_id"`
 	ReplacementID *int32    `json:"replacement_id"`
-	BudgetID      uuid.UUID `json:"budget_id"`
 }
 
+// Reassigns all transactions with this category to the replacement, then soft-deletes.
+// No budget scoping: categories are user-scoped so reassignment spans all periods.
 func (q *Queries) DeleteCategoryAndReassign(ctx context.Context, arg DeleteCategoryAndReassignParams) error {
-	_, err := q.db.Exec(ctx, deleteCategoryAndReassign,
-		arg.ID,
-		arg.UserID,
-		arg.ReplacementID,
-		arg.BudgetID,
-	)
+	_, err := q.db.Exec(ctx, deleteCategoryAndReassign, arg.ID, arg.UserID, arg.ReplacementID)
 	return err
 }
 
@@ -163,42 +158,45 @@ const deletePaymentMethodAndReassign = `-- name: DeletePaymentMethodAndReassign 
 WITH moved AS (
     UPDATE transaction SET payment_method_id = $3::uuid
     WHERE payment_method_id = $1::uuid
-      AND budget_id = $4::uuid
+      AND budget_period_id IN (
+        SELECT bp.id FROM budget_period bp WHERE bp.budget_profile_id = $4::uuid
+      )
 )
 UPDATE payment_methods
 SET is_active = FALSE
-WHERE id = $1::uuid AND user_id = $2::uuid
+WHERE payment_methods.id = $1::uuid AND payment_methods.user_id = $2::uuid
 `
 
 type DeletePaymentMethodAndReassignParams struct {
-	ID            uuid.UUID `json:"id"`
-	UserID        uuid.UUID `json:"user_id"`
-	ReplacementID uuid.UUID `json:"replacement_id"`
-	BudgetID      uuid.UUID `json:"budget_id"`
+	ID              uuid.UUID `json:"id"`
+	UserID          uuid.UUID `json:"user_id"`
+	ReplacementID   uuid.UUID `json:"replacement_id"`
+	BudgetProfileID uuid.UUID `json:"budget_profile_id"`
 }
 
+// Reassigns all transactions referencing this method within the profile's periods, then soft-deletes.
 func (q *Queries) DeletePaymentMethodAndReassign(ctx context.Context, arg DeletePaymentMethodAndReassignParams) error {
 	_, err := q.db.Exec(ctx, deletePaymentMethodAndReassign,
 		arg.ID,
 		arg.UserID,
 		arg.ReplacementID,
-		arg.BudgetID,
+		arg.BudgetProfileID,
 	)
 	return err
 }
 
 const deleteTransaction = `-- name: DeleteTransaction :exec
 DELETE FROM transaction
-WHERE id = $1 AND budget_id = $2
+WHERE id = $1 AND budget_period_id = $2
 `
 
 type DeleteTransactionParams struct {
-	ID       uuid.UUID  `json:"id"`
-	BudgetID *uuid.UUID `json:"budget_id"`
+	ID             uuid.UUID  `json:"id"`
+	BudgetPeriodID *uuid.UUID `json:"budget_period_id"`
 }
 
 func (q *Queries) DeleteTransaction(ctx context.Context, arg DeleteTransactionParams) error {
-	_, err := q.db.Exec(ctx, deleteTransaction, arg.ID, arg.BudgetID)
+	_, err := q.db.Exec(ctx, deleteTransaction, arg.ID, arg.BudgetPeriodID)
 	return err
 }
 
@@ -253,7 +251,7 @@ func (q *Queries) GetPaymentMethod(ctx context.Context, id uuid.UUID) (PaymentMe
 
 const getTransactionByID = `-- name: GetTransactionByID :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
-       budget_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
+       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
 FROM transaction
 WHERE id = $1
 LIMIT 1
@@ -270,7 +268,7 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 		&i.Date,
 		&i.RenewalDate,
 		&i.Recurring,
-		&i.BudgetID,
+		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
 		&i.TransactionFrequencyID,
@@ -320,12 +318,54 @@ func (q *Queries) ListCategories(ctx context.Context, dollar_1 uuid.UUID) ([]Lis
 	return items, nil
 }
 
+const listFixedRecurringTransactionsByPeriod = `-- name: ListFixedRecurringTransactionsByPeriod :many
+SELECT t.id, t.name, t.amount, t.planned_amount, t.date, t.renewal_date, t.recurring,
+       t.budget_period_id, t.category_id, t.payment_method_id, t.transaction_frequency_id, t.transaction_type_id
+FROM transaction t
+WHERE t.budget_period_id = $1
+  AND t.transaction_type_id = (SELECT tt.id FROM transaction_type tt WHERE tt.name = 'Fixed' LIMIT 1)
+  AND t.recurring = TRUE
+`
+
+func (q *Queries) ListFixedRecurringTransactionsByPeriod(ctx context.Context, budgetPeriodID *uuid.UUID) ([]Transaction, error) {
+	rows, err := q.db.Query(ctx, listFixedRecurringTransactionsByPeriod, budgetPeriodID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Transaction
+	for rows.Next() {
+		var i Transaction
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Amount,
+			&i.PlannedAmount,
+			&i.Date,
+			&i.RenewalDate,
+			&i.Recurring,
+			&i.BudgetPeriodID,
+			&i.CategoryID,
+			&i.PaymentMethodID,
+			&i.TransactionFrequencyID,
+			&i.TransactionTypeID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPaymentMethods = `-- name: ListPaymentMethods :many
 SELECT pm.id, pm.name, pm.payment_type_id, pm.user_id, pt.name AS type_name, pm.budget_person_id
 FROM payment_methods pm
 LEFT JOIN payment_type pt ON pm.payment_type_id = pt.id
 WHERE pm.budget_person_id IN (
-    SELECT id FROM budget_to_user_mapping WHERE budget_id = $1::uuid
+    SELECT id FROM budget_to_profile_mapping WHERE budget_profile_id = $1::uuid
 )
 AND pm.is_active = TRUE
 ORDER BY pm.name
@@ -417,22 +457,22 @@ func (q *Queries) ListTransactionTypes(ctx context.Context) ([]TransactionType, 
 
 const listTransactions = `-- name: ListTransactions :many
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
-       budget_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
+       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
 FROM transaction
-WHERE budget_id = $1::uuid
+WHERE budget_period_id = $1::uuid
   AND ($2::int IS NULL OR category_id = $2)
   AND ($3::int IS NULL OR transaction_type_id = $3)
 ORDER BY date DESC NULLS LAST
 `
 
 type ListTransactionsParams struct {
-	BudgetID          uuid.UUID `json:"budget_id"`
+	BudgetPeriodID    uuid.UUID `json:"budget_period_id"`
 	CategoryID        *int32    `json:"category_id"`
 	TransactionTypeID *int32    `json:"transaction_type_id"`
 }
 
 func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error) {
-	rows, err := q.db.Query(ctx, listTransactions, arg.BudgetID, arg.CategoryID, arg.TransactionTypeID)
+	rows, err := q.db.Query(ctx, listTransactions, arg.BudgetPeriodID, arg.CategoryID, arg.TransactionTypeID)
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +488,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.Date,
 			&i.RenewalDate,
 			&i.Recurring,
-			&i.BudgetID,
+			&i.BudgetPeriodID,
 			&i.CategoryID,
 			&i.PaymentMethodID,
 			&i.TransactionFrequencyID,
@@ -531,7 +571,7 @@ SET name = $2, amount = $3, planned_amount = $4, date = $5, recurring = $6,
     category_id = $7, payment_method_id = $8, transaction_frequency_id = $9, transaction_type_id = $10
 WHERE id = $1
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
-          budget_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
 `
 
 type UpdateTransactionParams struct {
@@ -569,7 +609,7 @@ func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionPa
 		&i.Date,
 		&i.RenewalDate,
 		&i.Recurring,
-		&i.BudgetID,
+		&i.BudgetPeriodID,
 		&i.CategoryID,
 		&i.PaymentMethodID,
 		&i.TransactionFrequencyID,

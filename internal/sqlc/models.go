@@ -9,21 +9,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Budget struct {
-	ID        uuid.UUID   `json:"id"`
-	UserID    uuid.UUID   `json:"user_id"`
-	Name      string      `json:"name"`
-	StartDate pgtype.Date `json:"start_date"`
-	EndDate   pgtype.Date `json:"end_date"`
-	Active    bool        `json:"active"`
+type BudgetPeriod struct {
+	ID              uuid.UUID          `json:"id"`
+	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
+	StartDate       pgtype.Date        `json:"start_date"`
+	EndDate         pgtype.Date        `json:"end_date"`
+	IsArchived      bool               `json:"is_archived"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
-type BudgetToUserMapping struct {
-	ID       int32      `json:"id"`
-	BudgetID uuid.UUID  `json:"budget_id"`
-	UserName *string    `json:"user_name"`
-	UserID   *uuid.UUID `json:"user_id"`
-	IsActive bool       `json:"is_active"`
+type BudgetProfile struct {
+	ID        uuid.UUID          `json:"id"`
+	UserID    uuid.UUID          `json:"user_id"`
+	Name      string             `json:"name"`
+	Cycle     string             `json:"cycle"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type BudgetToProfileMapping struct {
+	ID              int32      `json:"id"`
+	BudgetProfileID uuid.UUID  `json:"budget_profile_id"`
+	UserName        *string    `json:"user_name"`
+	UserID          *uuid.UUID `json:"user_id"`
+	IsActive        bool       `json:"is_active"`
 }
 
 type Category struct {
@@ -40,14 +48,25 @@ type CategoryType struct {
 	Name string `json:"name"`
 }
 
-type IncomeToBudgetMapping struct {
-	ID             int32          `json:"id"`
-	BudgetID       uuid.UUID      `json:"budget_id"`
-	UserID         *uuid.UUID     `json:"user_id"`
-	Name           *string        `json:"name"`
-	Amount         pgtype.Numeric `json:"amount"`
-	Recurring      bool           `json:"recurring"`
-	BudgetPersonID *int32         `json:"budget_person_id"`
+type IncomeEntry struct {
+	ID             int32              `json:"id"`
+	BudgetPeriodID uuid.UUID          `json:"budget_period_id"`
+	IncomeSourceID *int32             `json:"income_source_id"`
+	BudgetPersonID *int32             `json:"budget_person_id"`
+	Name           *string            `json:"name"`
+	Amount         pgtype.Numeric     `json:"amount"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type IncomeSource struct {
+	ID              int32              `json:"id"`
+	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
+	BudgetPersonID  *int32             `json:"budget_person_id"`
+	Name            string             `json:"name"`
+	IncomeType      string             `json:"income_type"`
+	DefaultAmount   pgtype.Numeric     `json:"default_amount"`
+	Recurring       bool               `json:"recurring"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
 type OauthAccount struct {
@@ -80,7 +99,7 @@ type Transaction struct {
 	Date                   pgtype.Date    `json:"date"`
 	RenewalDate            pgtype.Date    `json:"renewal_date"`
 	Recurring              *bool          `json:"recurring"`
-	BudgetID               *uuid.UUID     `json:"budget_id"`
+	BudgetPeriodID         *uuid.UUID     `json:"budget_period_id"`
 	CategoryID             *int32         `json:"category_id"`
 	PaymentMethodID        *uuid.UUID     `json:"payment_method_id"`
 	TransactionFrequencyID *int32         `json:"transaction_frequency_id"`
