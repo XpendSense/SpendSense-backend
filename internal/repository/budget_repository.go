@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -19,9 +20,11 @@ type BudgetRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 
 	ListPeople(ctx context.Context, budgetID uuid.UUID) ([]db.BudgetToUserMapping, error)
+	GetPerson(ctx context.Context, personID int32, budgetID uuid.UUID) (db.BudgetToUserMapping, error)
 	ExistsPerson(ctx context.Context, budgetID uuid.UUID, userName string) (bool, error)
 	AddPerson(ctx context.Context, arg db.AddBudgetPersonParams) (db.BudgetToUserMapping, error)
-	RemovePerson(ctx context.Context, arg db.RemoveBudgetPersonParams) error
+	SoftRemovePerson(ctx context.Context, arg db.SoftRemovePersonParams) error
+	SoftRemovePersonAndReassign(ctx context.Context, arg db.SoftRemovePersonAndReassignParams) error
 
 	ListIncome(ctx context.Context, budgetID uuid.UUID) ([]db.IncomeToBudgetMapping, error)
 	AddIncome(ctx context.Context, arg db.AddIncomeEntryParams) (db.IncomeToBudgetMapping, error)
@@ -77,8 +80,20 @@ func (r *budgetRepository) AddPerson(ctx context.Context, arg db.AddBudgetPerson
 	return r.q.AddBudgetPerson(ctx, arg)
 }
 
-func (r *budgetRepository) RemovePerson(ctx context.Context, arg db.RemoveBudgetPersonParams) error {
-	return r.q.RemoveBudgetPerson(ctx, arg)
+func (r *budgetRepository) GetPerson(ctx context.Context, personID int32, budgetID uuid.UUID) (db.BudgetToUserMapping, error) {
+	m, err := r.q.GetBudgetPersonByID(ctx, db.GetBudgetPersonByIDParams{ID: personID, BudgetID: budgetID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.BudgetToUserMapping{}, apperr.NotFound("budget_person", fmt.Sprintf("%d", personID))
+	}
+	return m, err
+}
+
+func (r *budgetRepository) SoftRemovePerson(ctx context.Context, arg db.SoftRemovePersonParams) error {
+	return r.q.SoftRemovePerson(ctx, arg)
+}
+
+func (r *budgetRepository) SoftRemovePersonAndReassign(ctx context.Context, arg db.SoftRemovePersonAndReassignParams) error {
+	return r.q.SoftRemovePersonAndReassign(ctx, arg)
 }
 
 func (r *budgetRepository) ListIncome(ctx context.Context, budgetID uuid.UUID) ([]db.IncomeToBudgetMapping, error) {

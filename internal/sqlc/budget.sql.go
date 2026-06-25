@@ -15,7 +15,7 @@ import (
 const addBudgetPerson = `-- name: AddBudgetPerson :one
 INSERT INTO budget_to_user_mapping (budget_id, user_name, user_id)
 VALUES ($1, $2, $3)
-RETURNING id, budget_id, user_name, user_id
+RETURNING id, budget_id, user_name, user_id, is_active
 `
 
 type AddBudgetPersonParams struct {
@@ -32,6 +32,7 @@ func (q *Queries) AddBudgetPerson(ctx context.Context, arg AddBudgetPersonParams
 		&i.BudgetID,
 		&i.UserName,
 		&i.UserID,
+		&i.IsActive,
 	)
 	return i, err
 }
@@ -141,7 +142,7 @@ func (q *Queries) ExistsBudgetByNameAndUser(ctx context.Context, arg ExistsBudge
 
 const existsBudgetPerson = `-- name: ExistsBudgetPerson :one
 SELECT EXISTS (
-    SELECT 1 FROM budget_to_user_mapping WHERE budget_id = $1 AND user_name = $2
+    SELECT 1 FROM budget_to_user_mapping WHERE budget_id = $1 AND user_name = $2 AND is_active = TRUE
 ) AS exists
 `
 
@@ -178,10 +179,35 @@ func (q *Queries) GetBudgetByID(ctx context.Context, id uuid.UUID) (Budget, erro
 	return i, err
 }
 
-const listBudgetPeople = `-- name: ListBudgetPeople :many
-SELECT id, budget_id, user_name, user_id
+const getBudgetPersonByID = `-- name: GetBudgetPersonByID :one
+SELECT id, budget_id, user_name, user_id, is_active
 FROM budget_to_user_mapping
-WHERE budget_id = $1
+WHERE id = $1 AND budget_id = $2
+LIMIT 1
+`
+
+type GetBudgetPersonByIDParams struct {
+	ID       int32     `json:"id"`
+	BudgetID uuid.UUID `json:"budget_id"`
+}
+
+func (q *Queries) GetBudgetPersonByID(ctx context.Context, arg GetBudgetPersonByIDParams) (BudgetToUserMapping, error) {
+	row := q.db.QueryRow(ctx, getBudgetPersonByID, arg.ID, arg.BudgetID)
+	var i BudgetToUserMapping
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetID,
+		&i.UserName,
+		&i.UserID,
+		&i.IsActive,
+	)
+	return i, err
+}
+
+const listBudgetPeople = `-- name: ListBudgetPeople :many
+SELECT id, budget_id, user_name, user_id, is_active
+FROM budget_to_user_mapping
+WHERE budget_id = $1 AND is_active = TRUE
 ORDER BY id
 `
 
@@ -199,6 +225,7 @@ func (q *Queries) ListBudgetPeople(ctx context.Context, budgetID uuid.UUID) ([]B
 			&i.BudgetID,
 			&i.UserName,
 			&i.UserID,
+			&i.IsActive,
 		); err != nil {
 			return nil, err
 		}
@@ -279,18 +306,65 @@ func (q *Queries) ListIncomeEntries(ctx context.Context, budgetID uuid.UUID) ([]
 	return items, nil
 }
 
-const removeBudgetPerson = `-- name: RemoveBudgetPerson :exec
-DELETE FROM budget_to_user_mapping
-WHERE id = $1 AND budget_id = $2
+const softRemovePerson = `-- name: SoftRemovePerson :exec
+WITH soft_delete_pms AS (
+    UPDATE payment_methods
+    SET is_active = FALSE
+    WHERE budget_person_id = $1
+)
+UPDATE budget_to_user_mapping
+SET is_active = FALSE
+WHERE budget_to_user_mapping.id = $1 AND budget_to_user_mapping.budget_id = $2::uuid
 `
 
-type RemoveBudgetPersonParams struct {
-	ID       int32     `json:"id"`
+type SoftRemovePersonParams struct {
+	PersonID int32     `json:"person_id"`
 	BudgetID uuid.UUID `json:"budget_id"`
 }
 
-func (q *Queries) RemoveBudgetPerson(ctx context.Context, arg RemoveBudgetPersonParams) error {
-	_, err := q.db.Exec(ctx, removeBudgetPerson, arg.ID, arg.BudgetID)
+func (q *Queries) SoftRemovePerson(ctx context.Context, arg SoftRemovePersonParams) error {
+	_, err := q.db.Exec(ctx, softRemovePerson, arg.PersonID, arg.BudgetID)
+	return err
+}
+
+const softRemovePersonAndReassign = `-- name: SoftRemovePersonAndReassign :exec
+WITH reassign_transactions AS (
+    UPDATE transaction
+    SET payment_method_id = $3::uuid
+    WHERE payment_method_id IN (
+        SELECT id FROM payment_methods WHERE budget_person_id = $1
+    )
+      AND budget_id = $2::uuid
+),
+soft_delete_pms AS (
+    UPDATE payment_methods
+    SET is_active = FALSE
+    WHERE budget_person_id = $1
+),
+reassign_income AS (
+    UPDATE income_to_budget_mapping
+    SET budget_person_id = $4
+    WHERE budget_person_id = $1 AND budget_id = $2::uuid
+)
+UPDATE budget_to_user_mapping
+SET is_active = FALSE
+WHERE budget_to_user_mapping.id = $1 AND budget_to_user_mapping.budget_id = $2::uuid
+`
+
+type SoftRemovePersonAndReassignParams struct {
+	PersonID            int32     `json:"person_id"`
+	BudgetID            uuid.UUID `json:"budget_id"`
+	ReplacementPmID     uuid.UUID `json:"replacement_pm_id"`
+	ReplacementPersonID *int32    `json:"replacement_person_id"`
+}
+
+func (q *Queries) SoftRemovePersonAndReassign(ctx context.Context, arg SoftRemovePersonAndReassignParams) error {
+	_, err := q.db.Exec(ctx, softRemovePersonAndReassign,
+		arg.PersonID,
+		arg.BudgetID,
+		arg.ReplacementPmID,
+		arg.ReplacementPersonID,
+	)
 	return err
 }
 

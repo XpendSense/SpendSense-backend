@@ -23,6 +23,7 @@ type BudgetToUserMapping struct {
 	BudgetID uuid.UUID  `json:"budget_id"`
 	UserName *string    `json:"user_name"`
 	UserID   *uuid.UUID `json:"user_id"`
+	IsActive bool       `json:"is_active"`
 }
 
 type Category struct {

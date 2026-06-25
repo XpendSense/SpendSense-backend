@@ -168,3 +168,104 @@ func TestUpdateIncome_ClearAttribution(t *testing.T) {
 	_, err := svc.UpdateIncome(context.Background(), 1, budgetID, userID, "Salary", pgtype.Numeric{}, false, nil)
 	require.NoError(t, err)
 }
+
+// ── Tests: RemovePerson ───────────────────────────────────────────────────────
+
+func TestRemovePerson_Success(t *testing.T) {
+	userID := uuid.New()
+	budgetID := uuid.New()
+	ownerUID := uuid.New()
+	personID := int32(5)
+	replacementID := int32(6)
+	replacementPMID := uuid.New()
+	removeCalled := false
+
+	svc := NewBudgetService(&mockBudgetRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.Budget, error) {
+			return db.Budget{ID: id, UserID: userID}, nil
+		},
+		getPerson: func(_ context.Context, pid int32, _ uuid.UUID) (db.BudgetToUserMapping, error) {
+			switch pid {
+			case personID:
+				return db.BudgetToUserMapping{ID: pid, UserID: &ownerUID, IsActive: true}, nil
+			case replacementID:
+				return db.BudgetToUserMapping{ID: pid, IsActive: true}, nil
+			}
+			return db.BudgetToUserMapping{}, apperr.NotFound("person", "")
+		},
+		softRemovePersonAndReassign: func(_ context.Context, arg db.SoftRemovePersonAndReassignParams) error {
+			removeCalled = true
+			assert.Equal(t, personID, arg.PersonID)
+			assert.Equal(t, replacementPMID, arg.ReplacementPmID)
+			return nil
+		},
+	}, &mockUserRepo{})
+
+	err := svc.RemovePerson(context.Background(), budgetID, personID, replacementID, replacementPMID, userID)
+	require.NoError(t, err)
+	assert.True(t, removeCalled)
+}
+
+func TestRemovePerson_OwnerBlocked(t *testing.T) {
+	userID := uuid.New()
+	budgetID := uuid.New()
+	personID := int32(1)
+
+	svc := NewBudgetService(&mockBudgetRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.Budget, error) {
+			return db.Budget{ID: id, UserID: userID}, nil
+		},
+		getPerson: func(_ context.Context, _ int32, _ uuid.UUID) (db.BudgetToUserMapping, error) {
+			return db.BudgetToUserMapping{ID: personID, UserID: &userID, IsActive: true}, nil
+		},
+	}, &mockUserRepo{})
+
+	err := svc.RemovePerson(context.Background(), budgetID, personID, 2, uuid.New(), userID)
+	require.Error(t, err)
+	var valErr *apperr.ValidationError
+	require.ErrorAs(t, err, &valErr)
+}
+
+func TestRemovePerson_PersonNotFound(t *testing.T) {
+	userID := uuid.New()
+	budgetID := uuid.New()
+
+	svc := NewBudgetService(&mockBudgetRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.Budget, error) {
+			return db.Budget{ID: id, UserID: userID}, nil
+		},
+		getPerson: func(_ context.Context, _ int32, _ uuid.UUID) (db.BudgetToUserMapping, error) {
+			return db.BudgetToUserMapping{}, apperr.NotFound("person", "99")
+		},
+	}, &mockUserRepo{})
+
+	err := svc.RemovePerson(context.Background(), budgetID, 99, 2, uuid.New(), userID)
+	require.Error(t, err)
+	var nfErr *apperr.NotFoundError
+	require.ErrorAs(t, err, &nfErr)
+}
+
+func TestRemovePerson_ReplacementNotFound(t *testing.T) {
+	userID := uuid.New()
+	budgetID := uuid.New()
+	otherUID := uuid.New()
+	personID := int32(5)
+	replacementID := int32(99)
+
+	svc := NewBudgetService(&mockBudgetRepo{
+		getByID: func(_ context.Context, id uuid.UUID) (db.Budget, error) {
+			return db.Budget{ID: id, UserID: userID}, nil
+		},
+		getPerson: func(_ context.Context, pid int32, _ uuid.UUID) (db.BudgetToUserMapping, error) {
+			if pid == personID {
+				return db.BudgetToUserMapping{ID: pid, UserID: &otherUID, IsActive: true}, nil
+			}
+			return db.BudgetToUserMapping{}, apperr.NotFound("person", "99")
+		},
+	}, &mockUserRepo{})
+
+	err := svc.RemovePerson(context.Background(), budgetID, personID, replacementID, uuid.New(), userID)
+	require.Error(t, err)
+	var nfErr *apperr.NotFoundError
+	require.ErrorAs(t, err, &nfErr)
+}

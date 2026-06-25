@@ -174,7 +174,16 @@ func (h *BudgetHandler) RemoveBudgetPerson(ctx context.Context, req *connect.Req
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	if svcErr := h.budgets.RemovePerson(ctx, budgetID, int32(req.Msg.PersonId), userID); svcErr != nil {
+	var replacementPMID uuid.UUID
+	if req.Msg.ReplacementPaymentMethodId != "" {
+		parsed, parseErr := uuid.Parse(req.Msg.ReplacementPaymentMethodId)
+		if parseErr != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("replacement_payment_method_id must be a valid UUID"))
+		}
+		replacementPMID = parsed
+	}
+	svcErr := h.budgets.RemovePerson(ctx, budgetID, int32(req.Msg.PersonId), int32(req.Msg.ReplacementPersonId), replacementPMID, userID)
+	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}
 	return connect.NewResponse(&v1.RemoveBudgetPersonResponse{}), nil

@@ -139,12 +139,14 @@ func (m *mockTransactionRepo) DeletePaymentMethodAndReassign(ctx context.Context
 // ── Mock budget repo ──────────────────────────────────────────────────────────
 
 type mockBudgetRepo struct {
-	getByID             func(context.Context, uuid.UUID) (db.Budget, error)
-	existsByNameAndUser func(context.Context, string, uuid.UUID) (bool, error)
-	create              func(context.Context, db.CreateBudgetParams) (db.Budget, error)
-	addPerson           func(context.Context, db.AddBudgetPersonParams) (db.BudgetToUserMapping, error)
-	addIncome           func(context.Context, db.AddIncomeEntryParams) (db.IncomeToBudgetMapping, error)
-	updateIncome        func(context.Context, db.UpdateIncomeEntryParams) (db.IncomeToBudgetMapping, error)
+	getByID                    func(context.Context, uuid.UUID) (db.Budget, error)
+	existsByNameAndUser        func(context.Context, string, uuid.UUID) (bool, error)
+	create                     func(context.Context, db.CreateBudgetParams) (db.Budget, error)
+	addPerson                  func(context.Context, db.AddBudgetPersonParams) (db.BudgetToUserMapping, error)
+	getPerson                  func(context.Context, int32, uuid.UUID) (db.BudgetToUserMapping, error)
+	softRemovePersonAndReassign func(context.Context, db.SoftRemovePersonAndReassignParams) error
+	addIncome                  func(context.Context, db.AddIncomeEntryParams) (db.IncomeToBudgetMapping, error)
+	updateIncome               func(context.Context, db.UpdateIncomeEntryParams) (db.IncomeToBudgetMapping, error)
 }
 
 func (m *mockBudgetRepo) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.Budget, error) {
@@ -195,7 +197,21 @@ func (m *mockBudgetRepo) AddPerson(ctx context.Context, arg db.AddBudgetPersonPa
 	return db.BudgetToUserMapping{BudgetID: arg.BudgetID, UserName: arg.UserName, UserID: arg.UserID}, nil
 }
 
-func (m *mockBudgetRepo) RemovePerson(ctx context.Context, arg db.RemoveBudgetPersonParams) error {
+func (m *mockBudgetRepo) GetPerson(ctx context.Context, personID int32, budgetID uuid.UUID) (db.BudgetToUserMapping, error) {
+	if m.getPerson != nil {
+		return m.getPerson(ctx, personID, budgetID)
+	}
+	return db.BudgetToUserMapping{ID: personID, BudgetID: budgetID, IsActive: true}, nil
+}
+
+func (m *mockBudgetRepo) SoftRemovePerson(ctx context.Context, arg db.SoftRemovePersonParams) error {
+	return nil
+}
+
+func (m *mockBudgetRepo) SoftRemovePersonAndReassign(ctx context.Context, arg db.SoftRemovePersonAndReassignParams) error {
+	if m.softRemovePersonAndReassign != nil {
+		return m.softRemovePersonAndReassign(ctx, arg)
+	}
 	return nil
 }
 

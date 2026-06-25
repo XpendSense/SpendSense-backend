@@ -31,24 +31,59 @@ DELETE FROM budget
 WHERE id = $1;
 
 -- name: ListBudgetPeople :many
-SELECT id, budget_id, user_name, user_id
+SELECT id, budget_id, user_name, user_id, is_active
 FROM budget_to_user_mapping
-WHERE budget_id = $1
+WHERE budget_id = $1 AND is_active = TRUE
 ORDER BY id;
+
+-- name: GetBudgetPersonByID :one
+SELECT id, budget_id, user_name, user_id, is_active
+FROM budget_to_user_mapping
+WHERE id = $1 AND budget_id = $2
+LIMIT 1;
 
 -- name: ExistsBudgetPerson :one
 SELECT EXISTS (
-    SELECT 1 FROM budget_to_user_mapping WHERE budget_id = $1 AND user_name = $2
+    SELECT 1 FROM budget_to_user_mapping WHERE budget_id = $1 AND user_name = $2 AND is_active = TRUE
 ) AS exists;
 
 -- name: AddBudgetPerson :one
 INSERT INTO budget_to_user_mapping (budget_id, user_name, user_id)
 VALUES ($1, $2, $3)
-RETURNING id, budget_id, user_name, user_id;
+RETURNING id, budget_id, user_name, user_id, is_active;
 
--- name: RemoveBudgetPerson :exec
-DELETE FROM budget_to_user_mapping
-WHERE id = $1 AND budget_id = $2;
+-- name: SoftRemovePersonAndReassign :exec
+WITH reassign_transactions AS (
+    UPDATE transaction
+    SET payment_method_id = sqlc.arg('replacement_pm_id')::uuid
+    WHERE payment_method_id IN (
+        SELECT id FROM payment_methods WHERE budget_person_id = sqlc.arg('person_id')
+    )
+      AND budget_id = sqlc.arg('budget_id')::uuid
+),
+soft_delete_pms AS (
+    UPDATE payment_methods
+    SET is_active = FALSE
+    WHERE budget_person_id = sqlc.arg('person_id')
+),
+reassign_income AS (
+    UPDATE income_to_budget_mapping
+    SET budget_person_id = sqlc.arg('replacement_person_id')
+    WHERE budget_person_id = sqlc.arg('person_id') AND budget_id = sqlc.arg('budget_id')::uuid
+)
+UPDATE budget_to_user_mapping
+SET is_active = FALSE
+WHERE budget_to_user_mapping.id = sqlc.arg('person_id') AND budget_to_user_mapping.budget_id = sqlc.arg('budget_id')::uuid;
+
+-- name: SoftRemovePerson :exec
+WITH soft_delete_pms AS (
+    UPDATE payment_methods
+    SET is_active = FALSE
+    WHERE budget_person_id = sqlc.arg('person_id')
+)
+UPDATE budget_to_user_mapping
+SET is_active = FALSE
+WHERE budget_to_user_mapping.id = sqlc.arg('person_id') AND budget_to_user_mapping.budget_id = sqlc.arg('budget_id')::uuid;
 
 -- name: ListIncomeEntries :many
 SELECT id, budget_id, user_id, name, amount, recurring, budget_person_id

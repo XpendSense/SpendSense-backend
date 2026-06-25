@@ -126,13 +126,36 @@ func (s *BudgetService) ListPeople(ctx context.Context, budgetID, userID uuid.UU
 	return s.budgets.ListPeople(ctx, budgetID)
 }
 
-func (s *BudgetService) RemovePerson(ctx context.Context, budgetID uuid.UUID, personID int32, userID uuid.UUID) error {
-	if _, err := s.Get(ctx, budgetID, userID); err != nil {
+func (s *BudgetService) RemovePerson(ctx context.Context, budgetID uuid.UUID, personID int32, replacementPersonID int32, replacementPMID uuid.UUID, userID uuid.UUID) error {
+	budget, err := s.Get(ctx, budgetID, userID)
+	if err != nil {
 		return err
 	}
-	return s.budgets.RemovePerson(ctx, db.RemoveBudgetPersonParams{
-		ID:       personID,
-		BudgetID: budgetID,
+	person, err := s.budgets.GetPerson(ctx, personID, budgetID)
+	if err != nil {
+		return err
+	}
+	// Protect the budget owner from removal.
+	if person.UserID != nil && *person.UserID == budget.UserID {
+		return apperr.Invalid("budget owner cannot be removed")
+	}
+	// No replacement provided — simple soft-delete (caller guarantees no data needs reassigning).
+	if replacementPersonID == 0 {
+		return s.budgets.SoftRemovePerson(ctx, db.SoftRemovePersonParams{
+			PersonID: personID,
+			BudgetID: budgetID,
+		})
+	}
+	// Replacement provided — validate it exists in the same budget then reassign atomically.
+	if _, err := s.budgets.GetPerson(ctx, replacementPersonID, budgetID); err != nil {
+		return apperr.NotFound("replacement_person", fmt.Sprintf("%d", replacementPersonID))
+	}
+	repID := replacementPersonID
+	return s.budgets.SoftRemovePersonAndReassign(ctx, db.SoftRemovePersonAndReassignParams{
+		PersonID:            personID,
+		BudgetID:            budgetID,
+		ReplacementPmID:     replacementPMID,
+		ReplacementPersonID: &repID,
 	})
 }
 
