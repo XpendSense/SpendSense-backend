@@ -334,7 +334,6 @@ func (h *BudgetHandler) AddSavingsSource(ctx context.Context, req *connect.Reque
 		Name:           req.Msg.Name,
 		Amount:         numericFromMoney(req.Msg.Amount),
 		Frequency:      recurringTypeStringFromProto(req.Msg.Frequency),
-		Recurring:      req.Msg.Recurring,
 		BudgetPersonID: personID,
 	})
 	if svcErr != nil {
@@ -381,7 +380,6 @@ func (h *BudgetHandler) UpdateSavingsSource(ctx context.Context, req *connect.Re
 		Name:           req.Msg.Name,
 		Amount:         numericFromMoney(req.Msg.Amount),
 		Frequency:      recurringTypeStringFromProto(req.Msg.Frequency),
-		Recurring:      req.Msg.Recurring,
 		BudgetPersonID: personID,
 	})
 	if svcErr != nil {
@@ -501,7 +499,6 @@ func toProtoSavingsSource(s db.SavingsSource) *v1.SavingsSource {
 		Name:            s.Name,
 		Amount:          moneyFromNumeric(s.Amount),
 		Frequency:       protoRecurringTypeFromString(s.Frequency),
-		Recurring:       s.Recurring,
 		BudgetPersonId:  personID,
 	}
 }

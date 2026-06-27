@@ -370,7 +370,6 @@ type SavingsSourceInput struct {
 	Name           string
 	Amount         pgtype.Numeric
 	Frequency      string
-	Recurring      bool
 	BudgetPersonID *int32
 }
 
@@ -384,7 +383,6 @@ func (s *BudgetProfileService) AddSavingsSource(ctx context.Context, profileID, 
 		Name:            inp.Name,
 		Amount:          inp.Amount,
 		Frequency:       inp.Frequency,
-		Recurring:       inp.Recurring,
 	})
 }
 
@@ -405,7 +403,6 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 		Name:            inp.Name,
 		Amount:          inp.Amount,
 		Frequency:       inp.Frequency,
-		Recurring:       inp.Recurring,
 		BudgetPersonID:  inp.BudgetPersonID,
 	})
 }

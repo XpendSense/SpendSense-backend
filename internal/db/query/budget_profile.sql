@@ -158,21 +158,21 @@ DELETE FROM income_source WHERE id = $1 AND budget_profile_id = $2;
 -- ── Savings Sources ───────────────────────────────────────────────────────────
 
 -- name: AddSavingsSource :one
-INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency, recurring)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, recurring, created_at;
+INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at;
 
 -- name: ListSavingsSources :many
-SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, recurring, created_at
+SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at
 FROM savings_source
 WHERE budget_profile_id = $1
 ORDER BY id;
 
 -- name: UpdateSavingsSource :one
 UPDATE savings_source
-SET name = $3, amount = $4, frequency = $5, recurring = $6, budget_person_id = $7
+SET name = $3, amount = $4, frequency = $5, budget_person_id = $6
 WHERE id = $1 AND budget_profile_id = $2
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, recurring, created_at;
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at;
 
 -- name: DeleteSavingsSource :exec
 DELETE FROM savings_source WHERE id = $1 AND budget_profile_id = $2;

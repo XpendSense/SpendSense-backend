@@ -84,9 +84,9 @@ func (q *Queries) AddIncomeSource(ctx context.Context, arg AddIncomeSourceParams
 
 const addSavingsSource = `-- name: AddSavingsSource :one
 
-INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency, recurring)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, recurring, created_at
+INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at
 `
 
 type AddSavingsSourceParams struct {
@@ -95,7 +95,6 @@ type AddSavingsSourceParams struct {
 	Name            string         `json:"name"`
 	Amount          pgtype.Numeric `json:"amount"`
 	Frequency       string         `json:"frequency"`
-	Recurring       bool           `json:"recurring"`
 }
 
 // ── Savings Sources ───────────────────────────────────────────────────────────
@@ -106,7 +105,6 @@ func (q *Queries) AddSavingsSource(ctx context.Context, arg AddSavingsSourcePara
 		arg.Name,
 		arg.Amount,
 		arg.Frequency,
-		arg.Recurring,
 	)
 	var i SavingsSource
 	err := row.Scan(
@@ -116,7 +114,6 @@ func (q *Queries) AddSavingsSource(ctx context.Context, arg AddSavingsSourcePara
 		&i.Name,
 		&i.Amount,
 		&i.Frequency,
-		&i.Recurring,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -581,7 +578,7 @@ func (q *Queries) ListProfileIDsWithLatestPeriodEndingOn(ctx context.Context, do
 }
 
 const listSavingsSources = `-- name: ListSavingsSources :many
-SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, recurring, created_at
+SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at
 FROM savings_source
 WHERE budget_profile_id = $1
 ORDER BY id
@@ -603,7 +600,6 @@ func (q *Queries) ListSavingsSources(ctx context.Context, budgetProfileID uuid.U
 			&i.Name,
 			&i.Amount,
 			&i.Frequency,
-			&i.Recurring,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -785,9 +781,9 @@ func (q *Queries) UpdateIncomeSource(ctx context.Context, arg UpdateIncomeSource
 
 const updateSavingsSource = `-- name: UpdateSavingsSource :one
 UPDATE savings_source
-SET name = $3, amount = $4, frequency = $5, recurring = $6, budget_person_id = $7
+SET name = $3, amount = $4, frequency = $5, budget_person_id = $6
 WHERE id = $1 AND budget_profile_id = $2
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, recurring, created_at
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at
 `
 
 type UpdateSavingsSourceParams struct {
@@ -796,7 +792,6 @@ type UpdateSavingsSourceParams struct {
 	Name            string         `json:"name"`
 	Amount          pgtype.Numeric `json:"amount"`
 	Frequency       string         `json:"frequency"`
-	Recurring       bool           `json:"recurring"`
 	BudgetPersonID  *int32         `json:"budget_person_id"`
 }
 
@@ -807,7 +802,6 @@ func (q *Queries) UpdateSavingsSource(ctx context.Context, arg UpdateSavingsSour
 		arg.Name,
 		arg.Amount,
 		arg.Frequency,
-		arg.Recurring,
 		arg.BudgetPersonID,
 	)
 	var i SavingsSource
@@ -818,7 +812,6 @@ func (q *Queries) UpdateSavingsSource(ctx context.Context, arg UpdateSavingsSour
 		&i.Name,
 		&i.Amount,
 		&i.Frequency,
-		&i.Recurring,
 		&i.CreatedAt,
 	)
 	return i, err

@@ -202,7 +202,7 @@ func (m *mockBudgetProfileRepo) AddSavingsSource(ctx context.Context, arg db.Add
 	if m.addSavingsSource != nil {
 		return m.addSavingsSource(ctx, arg)
 	}
-	return db.SavingsSource{BudgetProfileID: arg.BudgetProfileID, Name: arg.Name, Frequency: arg.Frequency, Recurring: arg.Recurring}, nil
+	return db.SavingsSource{BudgetProfileID: arg.BudgetProfileID, Name: arg.Name, Frequency: arg.Frequency}, nil
 }
 func (m *mockBudgetProfileRepo) ListSavingsSources(ctx context.Context, profileID uuid.UUID) ([]db.SavingsSource, error) {
 	if m.listSavingsSources != nil {
@@ -361,7 +361,6 @@ func TestAddSavingsSource_Success(t *testing.T) {
 			addSavingsSource: func(_ context.Context, arg db.AddSavingsSourceParams) (db.SavingsSource, error) {
 				assert.Equal(t, "Emergency Fund", arg.Name)
 				assert.Equal(t, "bi_weekly", arg.Frequency)
-				assert.True(t, arg.Recurring)
 				require.NotNil(t, arg.BudgetPersonID)
 				assert.Equal(t, personID, *arg.BudgetPersonID)
 				return db.SavingsSource{ID: 1, BudgetProfileID: profileID, Name: arg.Name, Frequency: arg.Frequency}, nil
@@ -374,7 +373,6 @@ func TestAddSavingsSource_Success(t *testing.T) {
 	src, err := svc.AddSavingsSource(context.Background(), profileID, userID, SavingsSourceInput{
 		Name:           "Emergency Fund",
 		Frequency:      "bi_weekly",
-		Recurring:      true,
 		BudgetPersonID: &personID,
 	})
 	require.NoError(t, err)
@@ -451,7 +449,6 @@ func TestUpdateSavingsSource_Success(t *testing.T) {
 	src, err := svc.UpdateSavingsSource(context.Background(), 1, profileID, userID, SavingsSourceInput{
 		Name:      "Renamed Fund",
 		Frequency: "monthly",
-		Recurring: true,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed Fund", src.Name)

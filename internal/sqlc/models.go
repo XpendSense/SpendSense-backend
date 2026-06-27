@@ -99,7 +99,6 @@ type SavingsSource struct {
 	Name            string             `json:"name"`
 	Amount          pgtype.Numeric     `json:"amount"`
 	Frequency       string             `json:"frequency"`
-	Recurring       bool               `json:"recurring"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
