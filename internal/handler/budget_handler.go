@@ -16,10 +16,11 @@ import (
 type BudgetHandler struct {
 	profiles     *service.BudgetProfileService
 	transactions *service.TransactionService
+	allocations  *service.ExpenseAllocationService
 }
 
-func NewBudgetHandler(profiles *service.BudgetProfileService, transactions *service.TransactionService) *BudgetHandler {
-	return &BudgetHandler{profiles: profiles, transactions: transactions}
+func NewBudgetHandler(profiles *service.BudgetProfileService, transactions *service.TransactionService, allocations *service.ExpenseAllocationService) *BudgetHandler {
+	return &BudgetHandler{profiles: profiles, transactions: transactions, allocations: allocations}
 }
 
 func (h *BudgetHandler) currentUserID(ctx context.Context) (uuid.UUID, error) {
@@ -403,4 +404,76 @@ func ptrInt32OrZero(p *int32) int32 {
 		return 0
 	}
 	return *p
+}
+
+// ── Expense Allocations ───────────────────────────────────────────────────────
+
+func (h *BudgetHandler) ListExpenseAllocations(ctx context.Context, req *connect.Request[v1.ListExpenseAllocationsRequest]) (*connect.Response[v1.ListExpenseAllocationsResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	rows, svcErr := h.allocations.List(ctx, profileID, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	protos := make([]*v1.ExpenseAllocation, len(rows))
+	for i, a := range rows {
+		protos[i] = toProtoExpenseAllocation(a)
+	}
+	return connect.NewResponse(&v1.ListExpenseAllocationsResponse{Allocations: protos}), nil
+}
+
+func (h *BudgetHandler) UpsertExpenseAllocation(ctx context.Context, req *connect.Request[v1.UpsertExpenseAllocationRequest]) (*connect.Response[v1.UpsertExpenseAllocationResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	var personID *int32
+	if req.Msg.BudgetPersonId != 0 {
+		v := int32(req.Msg.BudgetPersonId)
+		personID = &v
+	}
+	alloc, svcErr := h.allocations.Upsert(ctx, profileID, userID, req.Msg.CategoryId, personID, numericFromMoney(req.Msg.PlannedAmount))
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.UpsertExpenseAllocationResponse{Allocation: toProtoExpenseAllocation(alloc)}), nil
+}
+
+func (h *BudgetHandler) DeleteExpenseAllocation(ctx context.Context, req *connect.Request[v1.DeleteExpenseAllocationRequest]) (*connect.Response[v1.DeleteExpenseAllocationResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if svcErr := h.allocations.Delete(ctx, int32(req.Msg.Id), profileID, userID); svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.DeleteExpenseAllocationResponse{}), nil
+}
+
+func toProtoExpenseAllocation(a db.ExpenseAllocation) *v1.ExpenseAllocation {
+	var personID int64
+	if a.BudgetPersonID != nil {
+		personID = int64(*a.BudgetPersonID)
+	}
+	return &v1.ExpenseAllocation{
+		Id:              int64(a.ID),
+		BudgetProfileId: a.BudgetProfileID.String(),
+		CategoryId:      a.CategoryID,
+		BudgetPersonId:  personID,
+		PlannedAmount:   moneyFromNumeric(a.PlannedAmount),
+	}
 }

@@ -514,6 +514,13 @@ func toProtoSavingsSource(s db.SavingsSource) *v1.SavingsSource {
 	if s.BudgetPersonID != nil {
 		personID = int64(*s.BudgetPersonID)
 	}
+	var federalAmount, stateAmount *v1.Money
+	if s.FederalAmount.Valid {
+		federalAmount = moneyFromNumeric(s.FederalAmount)
+	}
+	if s.StateAmount.Valid {
+		stateAmount = moneyFromNumeric(s.StateAmount)
+	}
 	return &v1.SavingsSource{
 		Id:              int64(s.ID),
 		BudgetProfileId: s.BudgetProfileID.String(),
@@ -522,6 +529,8 @@ func toProtoSavingsSource(s db.SavingsSource) *v1.SavingsSource {
 		Frequency:       protoRecurringTypeFromString(s.Frequency),
 		BudgetPersonId:  personID,
 		IsTaxReserve:    s.IsTaxReserve,
+		FederalAmount:   federalAmount,
+		StateAmount:     stateAmount,
 	}
 }
 

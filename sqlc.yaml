@@ -15,6 +15,9 @@ sql:
       - "internal/db/migrations/000010_drop_savings_recurring.sql"
       - "internal/db/migrations/000011_add_color.sql"
       - "internal/db/migrations/000012_income_complexity.sql"
+      - "internal/db/migrations/000013_savings_tax_breakdown.sql"
+      - "internal/db/migrations/000014_tax_reserve_per_person.sql"
+      - "internal/db/migrations/000015_expense_allocation.sql"
     gen:
       go:
         package: "db"

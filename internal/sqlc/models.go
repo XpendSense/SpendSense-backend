@@ -64,6 +64,14 @@ type CountryFeature struct {
 	IsEnabled   bool   `json:"is_enabled"`
 }
 
+type ExpenseAllocation struct {
+	ID              int32          `json:"id"`
+	BudgetProfileID uuid.UUID      `json:"budget_profile_id"`
+	CategoryID      int32          `json:"category_id"`
+	BudgetPersonID  *int32         `json:"budget_person_id"`
+	PlannedAmount   pgtype.Numeric `json:"planned_amount"`
+}
+
 type IncomeEntry struct {
 	ID             int32              `json:"id"`
 	BudgetPeriodID uuid.UUID          `json:"budget_period_id"`
@@ -119,6 +127,8 @@ type SavingsSource struct {
 	Frequency       string             `json:"frequency"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	IsTaxReserve    bool               `json:"is_tax_reserve"`
+	FederalAmount   pgtype.Numeric     `json:"federal_amount"`
+	StateAmount     pgtype.Numeric     `json:"state_amount"`
 }
 
 type Transaction struct {

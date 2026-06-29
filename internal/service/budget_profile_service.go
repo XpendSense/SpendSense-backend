@@ -167,7 +167,6 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 
 	// Pre-fill recurring income sources as entries.
 	sources, _ := s.profiles.ListIncomeSources(ctx, profile.ID)
-	var annualBeforeTaxIncome float64
 	for _, src := range sources {
 		if !src.Recurring {
 			continue
@@ -180,37 +179,10 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 			Name:           &src.Name,
 			Amount:         src.DefaultAmount,
 		})
-		// Accumulate before-tax income for the tax reserve calculation.
-		if src.BeforeTax && src.DefaultAmount.Valid {
-			f, _ := new(big.Float).SetInt(src.DefaultAmount.Int).Float64()
-			if src.DefaultAmount.Exp > 0 {
-				mul := math.Pow(10, float64(src.DefaultAmount.Exp))
-				f *= mul
-			} else if src.DefaultAmount.Exp < 0 {
-				div := math.Pow(10, float64(-src.DefaultAmount.Exp))
-				f /= div
-			}
-			annualBeforeTaxIncome += f
-		}
 	}
 
-	// Upsert tax reserve savings source for US profiles with before-tax income.
-	if profile.CountryCode != nil && *profile.CountryCode == "US" && annualBeforeTaxIncome > 0 {
-		if owner, ownerErr := s.users.GetByID(ctx, profile.UserID); ownerErr == nil {
-			stateCode := ""
-			if owner.StateCode != nil {
-				stateCode = *owner.StateCode
-			}
-			fsInt, _ := strconv.Atoi(owner.FilingStatus)
-			estimate := tax.Estimate(annualBeforeTaxIncome, stateCode, tax.FilingStatus(fsInt))
-			cents := int64(math.Round(estimate.MonthlySaving * 100))
-			monthly := pgtype.Numeric{Int: big.NewInt(cents), Exp: -2, Valid: true}
-			_, _ = s.profiles.UpsertTaxReserveSavingsSource(ctx, db.UpsertTaxReserveSavingsSourceParams{
-				BudgetProfileID: profile.ID,
-				Amount:          monthly,
-			})
-		}
-	}
+	// Recalculate per-person tax reserve entries.
+	s.recalculateTaxReserve(ctx, profile.ID)
 
 	// Carry forward fixed+recurring transactions from the previous period.
 	if latest.ID != uuid.Nil {
@@ -425,8 +397,8 @@ func (s *BudgetProfileService) DeleteIncomeSource(ctx context.Context, id int32,
 	return nil
 }
 
-// recalculateTaxReserve recomputes the tax reserve savings source for a US
-// profile whenever income sources change. It is best-effort — failures are
+// recalculateTaxReserve recomputes per-person tax reserve savings entries for a
+// US profile whenever income sources change. It is best-effort — failures are
 // silently ignored so the primary mutation is never blocked.
 func (s *BudgetProfileService) recalculateTaxReserve(ctx context.Context, profileID uuid.UUID) {
 	profile, err := s.profiles.GetByID(ctx, profileID)
@@ -434,8 +406,7 @@ func (s *BudgetProfileService) recalculateTaxReserve(ctx context.Context, profil
 		return
 	}
 
-	// Resolve effective country: fall back to the owner's country when the
-	// profile pre-dates the country_code column.
+	// Resolve effective country (fall back to owner when profile predates the column).
 	countryCode := ""
 	if profile.CountryCode != nil {
 		countryCode = *profile.CountryCode
@@ -454,7 +425,24 @@ func (s *BudgetProfileService) recalculateTaxReserve(ctx context.Context, profil
 		return
 	}
 
-	var annualBeforeTax float64
+	// Build people list once — used both to find the owner's person entry and
+	// to map person → linked user for individual tax settings.
+	people, _ := s.profiles.ListPeople(ctx, profileID)
+	var ownerPersonID *int32
+	userByPerson := map[int32]uuid.UUID{}
+	for _, p := range people {
+		if p.UserID != nil {
+			userByPerson[p.ID] = *p.UserID
+			if *p.UserID == profile.UserID {
+				pid := p.ID
+				ownerPersonID = &pid
+			}
+		}
+	}
+
+	// Group annual before-tax income by person ID.
+	// Unattributed income (person 0) falls back to the owner's person entry.
+	incomeByPerson := map[int32]float64{}
 	for _, src := range sources {
 		if !src.BeforeTax || !src.DefaultAmount.Valid {
 			continue
@@ -465,30 +453,67 @@ func (s *BudgetProfileService) recalculateTaxReserve(ctx context.Context, profil
 		} else if src.DefaultAmount.Exp < 0 {
 			f /= math.Pow(10, float64(-src.DefaultAmount.Exp))
 		}
-		annualBeforeTax += f
+		f *= 12 // monthly → annual
+
+		pid := int32(0)
+		if src.BudgetPersonID != nil {
+			pid = *src.BudgetPersonID
+		}
+		if pid == 0 && ownerPersonID != nil {
+			pid = *ownerPersonID
+		}
+		incomeByPerson[pid] += f
 	}
 
-	if annualBeforeTax == 0 {
-		_ = s.profiles.DeleteTaxReserveSavingsSource(ctx, profileID)
+	// Delete all existing tax reserve entries; re-create one per person.
+	_ = s.profiles.DeleteTaxReserveSavingsSource(ctx, profileID)
+	if len(incomeByPerson) == 0 {
 		return
 	}
 
+	// Load owner for fallback tax settings.
 	owner, err := s.users.GetByID(ctx, profile.UserID)
 	if err != nil {
 		return
 	}
-	stateCode := ""
+	ownerState := ""
 	if owner.StateCode != nil {
-		stateCode = *owner.StateCode
+		ownerState = *owner.StateCode
 	}
-	fsInt, _ := strconv.Atoi(owner.FilingStatus)
-	estimate := tax.Estimate(annualBeforeTax, stateCode, tax.FilingStatus(fsInt))
-	cents := int64(math.Round(estimate.MonthlySaving * 100))
-	monthly := pgtype.Numeric{Int: big.NewInt(cents), Exp: -2, Valid: true}
-	_, _ = s.profiles.UpsertTaxReserveSavingsSource(ctx, db.UpsertTaxReserveSavingsSourceParams{
-		BudgetProfileID: profileID,
-		Amount:          monthly,
-	})
+	ownerFS, _ := strconv.Atoi(owner.FilingStatus)
+
+	toMonthly := func(annual float64) pgtype.Numeric {
+		return pgtype.Numeric{Int: big.NewInt(int64(math.Round(annual / 12 * 100))), Exp: -2, Valid: true}
+	}
+
+	for personID, annualIncome := range incomeByPerson {
+		if annualIncome == 0 {
+			continue
+		}
+		pid := personID // local copy for pointer
+
+		// Use the person's own tax settings if they are a linked user.
+		stateCode, fsInt := ownerState, ownerFS
+		if uid, ok := userByPerson[personID]; ok {
+			if u, uErr := s.users.GetByID(ctx, uid); uErr == nil {
+				if u.StateCode != nil {
+					stateCode = *u.StateCode
+				}
+				if u.FilingStatus != "" {
+					fsInt, _ = strconv.Atoi(u.FilingStatus)
+				}
+			}
+		}
+
+		estimate := tax.Estimate(annualIncome, stateCode, tax.FilingStatus(fsInt))
+		_, _ = s.profiles.UpsertTaxReserveSavingsSource(ctx, db.UpsertTaxReserveSavingsSourceParams{
+			BudgetProfileID: profileID,
+			BudgetPersonID:  &pid,
+			Amount:          toMonthly(estimate.TotalAnnual),
+			FederalAmount:   toMonthly(estimate.FederalTax),
+			StateAmount:     toMonthly(estimate.StateTax),
+		})
+	}
 }
 
 // ── Income Entries ────────────────────────────────────────────────────────────

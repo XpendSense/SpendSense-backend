@@ -96,7 +96,7 @@ const addSavingsSource = `-- name: AddSavingsSource :one
 
 INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
 `
 
 type AddSavingsSourceParams struct {
@@ -126,6 +126,8 @@ func (q *Queries) AddSavingsSource(ctx context.Context, arg AddSavingsSourcePara
 		&i.Frequency,
 		&i.CreatedAt,
 		&i.IsTaxReserve,
+		&i.FederalAmount,
+		&i.StateAmount,
 	)
 	return i, err
 }
@@ -610,7 +612,7 @@ func (q *Queries) ListProfileIDsWithLatestPeriodEndingOn(ctx context.Context, do
 }
 
 const listSavingsSources = `-- name: ListSavingsSources :many
-SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve
+SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
 FROM savings_source
 WHERE budget_profile_id = $1
 ORDER BY id
@@ -634,6 +636,8 @@ func (q *Queries) ListSavingsSources(ctx context.Context, budgetProfileID uuid.U
 			&i.Frequency,
 			&i.CreatedAt,
 			&i.IsTaxReserve,
+			&i.FederalAmount,
+			&i.StateAmount,
 		); err != nil {
 			return nil, err
 		}
@@ -847,7 +851,7 @@ const updateSavingsSource = `-- name: UpdateSavingsSource :one
 UPDATE savings_source
 SET name = $3, amount = $4, frequency = $5, budget_person_id = $6
 WHERE id = $1 AND budget_profile_id = $2
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
 `
 
 type UpdateSavingsSourceParams struct {
@@ -878,27 +882,38 @@ func (q *Queries) UpdateSavingsSource(ctx context.Context, arg UpdateSavingsSour
 		&i.Frequency,
 		&i.CreatedAt,
 		&i.IsTaxReserve,
+		&i.FederalAmount,
+		&i.StateAmount,
 	)
 	return i, err
 }
 
 const upsertTaxReserveSavingsSource = `-- name: UpsertTaxReserveSavingsSource :one
-INSERT INTO savings_source (budget_profile_id, name, amount, frequency, is_tax_reserve)
-VALUES ($1::uuid, 'Future Tax Payment', $2, 'monthly', TRUE)
-ON CONFLICT (budget_profile_id) WHERE is_tax_reserve = TRUE
-DO UPDATE SET amount = EXCLUDED.amount
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve
+INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency, is_tax_reserve, federal_amount, state_amount)
+VALUES ($1::uuid, $2, 'Future Tax Payment', $3, 'monthly', TRUE, $4, $5)
+ON CONFLICT (budget_profile_id, budget_person_id) WHERE is_tax_reserve = TRUE
+DO UPDATE SET amount = EXCLUDED.amount, federal_amount = EXCLUDED.federal_amount, state_amount = EXCLUDED.state_amount
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
 `
 
 type UpsertTaxReserveSavingsSourceParams struct {
 	BudgetProfileID uuid.UUID      `json:"budget_profile_id"`
+	BudgetPersonID  *int32         `json:"budget_person_id"`
 	Amount          pgtype.Numeric `json:"amount"`
+	FederalAmount   pgtype.Numeric `json:"federal_amount"`
+	StateAmount     pgtype.Numeric `json:"state_amount"`
 }
 
 // Upserts the system-managed tax reserve savings source for a budget profile.
 // Uses the partial unique index idx_savings_source_tax_reserve.
 func (q *Queries) UpsertTaxReserveSavingsSource(ctx context.Context, arg UpsertTaxReserveSavingsSourceParams) (SavingsSource, error) {
-	row := q.db.QueryRow(ctx, upsertTaxReserveSavingsSource, arg.BudgetProfileID, arg.Amount)
+	row := q.db.QueryRow(ctx, upsertTaxReserveSavingsSource,
+		arg.BudgetProfileID,
+		arg.BudgetPersonID,
+		arg.Amount,
+		arg.FederalAmount,
+		arg.StateAmount,
+	)
 	var i SavingsSource
 	err := row.Scan(
 		&i.ID,
@@ -909,6 +924,8 @@ func (q *Queries) UpsertTaxReserveSavingsSource(ctx context.Context, arg UpsertT
 		&i.Frequency,
 		&i.CreatedAt,
 		&i.IsTaxReserve,
+		&i.FederalAmount,
+		&i.StateAmount,
 	)
 	return i, err
 }

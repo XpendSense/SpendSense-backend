@@ -166,10 +166,10 @@ DELETE FROM income_source WHERE id = $1 AND budget_profile_id = $2;
 -- name: AddSavingsSource :one
 INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve;
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount;
 
 -- name: ListSavingsSources :many
-SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve
+SELECT id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount
 FROM savings_source
 WHERE budget_profile_id = $1
 ORDER BY id;
@@ -178,7 +178,7 @@ ORDER BY id;
 UPDATE savings_source
 SET name = $3, amount = $4, frequency = $5, budget_person_id = $6
 WHERE id = $1 AND budget_profile_id = $2
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve;
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount;
 
 -- name: DeleteSavingsSource :exec
 DELETE FROM savings_source WHERE id = $1 AND budget_profile_id = $2;
@@ -189,11 +189,11 @@ DELETE FROM savings_source WHERE budget_profile_id = $1 AND is_tax_reserve = TRU
 -- Upserts the system-managed tax reserve savings source for a budget profile.
 -- Uses the partial unique index idx_savings_source_tax_reserve.
 -- name: UpsertTaxReserveSavingsSource :one
-INSERT INTO savings_source (budget_profile_id, name, amount, frequency, is_tax_reserve)
-VALUES (sqlc.arg('budget_profile_id')::uuid, 'Future Tax Payment', sqlc.arg('amount'), 'monthly', TRUE)
-ON CONFLICT (budget_profile_id) WHERE is_tax_reserve = TRUE
-DO UPDATE SET amount = EXCLUDED.amount
-RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve;
+INSERT INTO savings_source (budget_profile_id, budget_person_id, name, amount, frequency, is_tax_reserve, federal_amount, state_amount)
+VALUES (sqlc.arg('budget_profile_id')::uuid, sqlc.arg('budget_person_id'), 'Future Tax Payment', sqlc.arg('amount'), 'monthly', TRUE, sqlc.arg('federal_amount'), sqlc.arg('state_amount'))
+ON CONFLICT (budget_profile_id, budget_person_id) WHERE is_tax_reserve = TRUE
+DO UPDATE SET amount = EXCLUDED.amount, federal_amount = EXCLUDED.federal_amount, state_amount = EXCLUDED.state_amount
+RETURNING id, budget_profile_id, budget_person_id, name, amount, frequency, created_at, is_tax_reserve, federal_amount, state_amount;
 
 -- ── Income Entries ────────────────────────────────────────────────────────────
 
