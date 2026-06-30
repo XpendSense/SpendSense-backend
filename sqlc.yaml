@@ -18,6 +18,7 @@ sql:
       - "internal/db/migrations/000013_savings_tax_breakdown.sql"
       - "internal/db/migrations/000014_tax_reserve_per_person.sql"
       - "internal/db/migrations/000015_expense_allocation.sql"
+      - "internal/db/migrations/000016_add_gas_auto_categories.sql"
     gen:
       go:
         package: "db"
