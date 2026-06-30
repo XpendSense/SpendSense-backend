@@ -17,7 +17,7 @@ type Config struct {
 	CORSAllowedOrigins  []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"http://localhost:5173,http://localhost:3000"`
 	Debug               bool     `envconfig:"DEBUG" default:"false"`
 	Env                 string   `envconfig:"ENV" default:"dev"`
-	ServerPort          string   `envconfig:"SERVER_PORT" default:"8080"`
+	ServerPort          string   `envconfig:"PORT" default:"8080"`
 }
 
 func Load() (*Config, error) {
