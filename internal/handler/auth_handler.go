@@ -29,7 +29,7 @@ func (h *AuthHandler) Register(ctx context.Context, req *connect.Request[v1.Regi
 }
 
 func (h *AuthHandler) Login(ctx context.Context, req *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error) {
-	result, err := h.svc.Login(ctx, req.Msg.Email, req.Msg.Password)
+	result, err := h.svc.Login(ctx, req.Msg.Email, req.Msg.Password, req.Msg.RememberMe)
 	if err != nil {
 		return nil, toConnectError(err)
 	}

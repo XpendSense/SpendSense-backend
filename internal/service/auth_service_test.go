@@ -197,10 +197,23 @@ func TestLogin_Success(t *testing.T) {
 			return db.User{ID: uuid.New(), Email: email, HashedPassword: &h, IsActive: true}, nil
 		},
 	}
-	result, err := newAuthSvc(repo).Login(context.Background(), "user@example.com", "Strong@1")
+	result, err := newAuthSvc(repo).Login(context.Background(), "user@example.com", "Strong@1", false)
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.AccessToken)
-	assert.Equal(t, int64(3600), result.ExpiresIn)
+	assert.Equal(t, int64(24*3600), result.ExpiresIn)
+}
+
+func TestLogin_RememberMe_Issues90DayToken(t *testing.T) {
+	h := hashFor(t, "Strong@1")
+	repo := &mockUserRepo{
+		getByEmail: func(_ context.Context, email string) (db.User, error) {
+			return db.User{ID: uuid.New(), Email: email, HashedPassword: &h, IsActive: true}, nil
+		},
+	}
+	result, err := newAuthSvc(repo).Login(context.Background(), "user@example.com", "Strong@1", true)
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.AccessToken)
+	assert.Equal(t, int64(90*24*3600), result.ExpiresIn)
 }
 
 func TestLogin_WrongPassword(t *testing.T) {
@@ -210,7 +223,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 			return db.User{ID: uuid.New(), Email: email, HashedPassword: &h, IsActive: true}, nil
 		},
 	}
-	_, err := newAuthSvc(repo).Login(context.Background(), "user@example.com", "Wrong@1")
+	_, err := newAuthSvc(repo).Login(context.Background(), "user@example.com", "Wrong@1", false)
 	require.Error(t, err)
 	var ve *apperr.ValidationError
 	require.ErrorAs(t, err, &ve)
@@ -219,7 +232,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 
 func TestLogin_EmailNotFound(t *testing.T) {
 	// Should surface as a generic error, not reveal that email doesn't exist
-	_, err := newAuthSvc(&mockUserRepo{}).Login(context.Background(), "nobody@example.com", "Strong@1")
+	_, err := newAuthSvc(&mockUserRepo{}).Login(context.Background(), "nobody@example.com", "Strong@1", false)
 	require.Error(t, err)
 	var ve *apperr.ValidationError
 	require.ErrorAs(t, err, &ve)
@@ -233,7 +246,7 @@ func TestLogin_InactiveAccount(t *testing.T) {
 			return db.User{ID: uuid.New(), Email: email, HashedPassword: &h, IsActive: false}, nil
 		},
 	}
-	_, err := newAuthSvc(repo).Login(context.Background(), "user@example.com", "Strong@1")
+	_, err := newAuthSvc(repo).Login(context.Background(), "user@example.com", "Strong@1", false)
 	require.Error(t, err)
 	var fe *apperr.ForbiddenError
 	require.ErrorAs(t, err, &fe)
@@ -245,7 +258,7 @@ func TestLogin_OAuthOnlyAccount(t *testing.T) {
 			return db.User{ID: uuid.New(), Email: email, HashedPassword: nil, IsActive: true}, nil
 		},
 	}
-	_, err := newAuthSvc(repo).Login(context.Background(), "oauth@example.com", "Strong@1")
+	_, err := newAuthSvc(repo).Login(context.Background(), "oauth@example.com", "Strong@1", false)
 	require.Error(t, err)
 	var ve *apperr.ValidationError
 	require.ErrorAs(t, err, &ve)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/mail"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -33,7 +34,7 @@ type LoginResult struct {
 	Currency    string
 }
 
-func (s *AuthService) Login(ctx context.Context, email, password string) (LoginResult, error) {
+func (s *AuthService) Login(ctx context.Context, email, password string, rememberMe bool) (LoginResult, error) {
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
 		// Surface as generic error to avoid email enumeration
@@ -49,11 +50,15 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (LoginR
 		return LoginResult{}, apperr.Invalid("invalid email or password")
 	}
 
-	token, err := s.jwt.GenerateToken(user.ID)
+	lifetime := 24 * time.Hour
+	if rememberMe {
+		lifetime = 90 * 24 * time.Hour
+	}
+	token, err := s.jwt.GenerateTokenWithLifetime(user.ID, lifetime)
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("auth: generate token: %w", err)
 	}
-	return LoginResult{AccessToken: token, ExpiresIn: s.jwt.LifetimeSeconds(), Language: user.Language, Currency: user.Currency}, nil
+	return LoginResult{AccessToken: token, ExpiresIn: int64(lifetime.Seconds()), Language: user.Language, Currency: user.Currency}, nil
 }
 
 type GoogleExchangeResult struct {

@@ -26,10 +26,14 @@ func NewJWTService(secret string, lifetimeSeconds int) *JWTService {
 }
 
 func (s *JWTService) GenerateToken(userID uuid.UUID) (string, error) {
+	return s.GenerateTokenWithLifetime(userID, s.lifetime)
+}
+
+func (s *JWTService) GenerateTokenWithLifetime(userID uuid.UUID, lifetime time.Duration) (string, error) {
 	claims := Claims{
 		UserID: userID.String(),
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.lifetime)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(lifetime)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
