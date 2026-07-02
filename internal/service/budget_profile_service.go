@@ -210,10 +210,31 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 }
 
 func (s *BudgetProfileService) ListBudgetPeriods(ctx context.Context, profileID, userID uuid.UUID) ([]db.BudgetPeriod, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	profile, err := s.assertOwner(ctx, profileID, userID)
+	if err != nil {
 		return nil, err
 	}
-	return s.profiles.ListPeriods(ctx, profileID)
+	periods, err := s.profiles.ListPeriods(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	// Auto-advance: if the latest non-archived period has already ended, create the next one.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	var latest *db.BudgetPeriod
+	for i := range periods {
+		if !periods[i].IsArchived {
+			if latest == nil || periods[i].EndDate.Time.After(latest.EndDate.Time) {
+				latest = &periods[i]
+			}
+		}
+	}
+	if latest != nil && latest.EndDate.Time.Before(today) {
+		if _, advErr := s.createNextPeriod(ctx, profile); advErr == nil {
+			// Refresh so the caller sees the new period.
+			periods, _ = s.profiles.ListPeriods(ctx, profileID)
+		}
+	}
+	return periods, nil
 }
 
 func (s *BudgetProfileService) GetBudgetPeriod(ctx context.Context, periodID, userID uuid.UUID) (db.BudgetPeriod, error) {
