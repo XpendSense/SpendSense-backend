@@ -210,10 +210,31 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 }
 
 func (s *BudgetProfileService) ListBudgetPeriods(ctx context.Context, profileID, userID uuid.UUID) ([]db.BudgetPeriod, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	profile, err := s.assertOwner(ctx, profileID, userID)
+	if err != nil {
 		return nil, err
 	}
-	return s.profiles.ListPeriods(ctx, profileID)
+	periods, err := s.profiles.ListPeriods(ctx, profileID)
+	if err != nil {
+		return nil, err
+	}
+	// Auto-advance: if the latest non-archived period has already ended, create the next one.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	var latest *db.BudgetPeriod
+	for i := range periods {
+		if !periods[i].IsArchived {
+			if latest == nil || periods[i].EndDate.Time.After(latest.EndDate.Time) {
+				latest = &periods[i]
+			}
+		}
+	}
+	if latest != nil && latest.EndDate.Time.Before(today) {
+		if _, advErr := s.createNextPeriod(ctx, profile); advErr == nil {
+			// Refresh so the caller sees the new period.
+			periods, _ = s.profiles.ListPeriods(ctx, profileID)
+		}
+	}
+	return periods, nil
 }
 
 func (s *BudgetProfileService) GetBudgetPeriod(ctx context.Context, periodID, userID uuid.UUID) (db.BudgetPeriod, error) {
@@ -541,23 +562,117 @@ func (s *BudgetProfileService) UpdateIncomeEntry(ctx context.Context, id int32, 
 type SavingsSourceInput struct {
 	Name            string
 	Amount          pgtype.Numeric
-	Frequency       string
-	BudgetPersonID  *int32
 	PaymentMethodID *uuid.UUID
+	PaymentDays     []int32 // 1=monthly, 2=bi-weekly, 4=weekly; owner inferred from PM
+}
+
+func paymentDaysFrequency(n int) string {
+	switch n {
+	case 2:
+		return "bi_weekly"
+	case 4:
+		return "weekly"
+	default:
+		return "monthly"
+	}
 }
 
 func (s *BudgetProfileService) AddSavingsSource(ctx context.Context, profileID, userID uuid.UUID, inp SavingsSourceInput) (db.SavingsSource, error) {
 	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
 		return db.SavingsSource{}, err
 	}
-	return s.profiles.AddSavingsSource(ctx, db.AddSavingsSourceParams{
+	n := len(inp.PaymentDays)
+	if n != 1 && n != 2 && n != 4 {
+		return db.SavingsSource{}, apperr.Invalid("payment_days must have 1, 2, or 4 entries")
+	}
+
+	var personID *int32
+	if inp.PaymentMethodID != nil {
+		pm, err := s.transactions.GetPaymentMethod(ctx, *inp.PaymentMethodID)
+		if err != nil {
+			return db.SavingsSource{}, err
+		}
+		personID = pm.BudgetPersonID
+	}
+
+	src, err := s.profiles.AddSavingsSource(ctx, db.AddSavingsSourceParams{
 		BudgetProfileID: profileID,
-		BudgetPersonID:  inp.BudgetPersonID,
+		BudgetPersonID:  personID,
 		Name:            inp.Name,
 		Amount:          inp.Amount,
-		Frequency:       inp.Frequency,
+		Frequency:       paymentDaysFrequency(n),
 		PaymentMethodID: inp.PaymentMethodID,
+		PaymentDays:     inp.PaymentDays,
 	})
+	if err != nil {
+		return db.SavingsSource{}, err
+	}
+
+	s.createSavingsTransactions(ctx, profileID, userID, src)
+	return src, nil
+}
+
+func (s *BudgetProfileService) createSavingsTransactions(ctx context.Context, profileID, userID uuid.UUID, src db.SavingsSource) {
+	period, err := s.profiles.GetLatestPeriod(ctx, profileID)
+	if err != nil {
+		return
+	}
+	cats, err := s.transactions.ListCategories(ctx, userID)
+	if err != nil {
+		return
+	}
+	var savingsCatID *int32
+	for _, c := range cats {
+		if c.Name == "Savings" && c.IsSystem {
+			id := c.ID
+			savingsCatID = &id
+			break
+		}
+	}
+	if savingsCatID == nil {
+		return
+	}
+
+	txTypeID := int32(1) // Fixed
+	freqIDByFreq := map[string]int32{"monthly": 4, "bi_weekly": 3, "weekly": 2}
+	txFreqID := freqIDByFreq[src.Frequency]
+
+	// Split amount evenly across payment days.
+	perDayAmount := src.Amount
+	n := len(src.PaymentDays)
+	if n > 1 && src.Amount.Int != nil {
+		perDayAmount = pgtype.Numeric{
+			Int:   new(big.Int).Quo(src.Amount.Int, big.NewInt(int64(n))),
+			Exp:   src.Amount.Exp,
+			Valid: src.Amount.Valid,
+		}
+	}
+
+	startTime := period.StartDate.Time
+	lastDay := time.Date(startTime.Year(), startTime.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	for _, day := range src.PaymentDays {
+		d := int(day)
+		if d > lastDay {
+			d = lastDay
+		}
+		txDate := pgtype.Date{
+			Time:  time.Date(startTime.Year(), startTime.Month(), d, 0, 0, 0, 0, time.UTC),
+			Valid: true,
+		}
+		s.transactions.Create(ctx, db.CreateTransactionParams{ //nolint:errcheck
+			Name:                   &src.Name,
+			Amount:                 perDayAmount,
+			PlannedAmount:          perDayAmount,
+			Date:                   txDate,
+			RenewalDate:            pgtype.Date{},
+			Recurring:              func() *bool { v := true; return &v }(),
+			BudgetPeriodID:         &period.ID,
+			CategoryID:             savingsCatID,
+			PaymentMethodID:        src.PaymentMethodID,
+			TransactionFrequencyID: &txFreqID,
+			TransactionTypeID:      &txTypeID,
+		})
+	}
 }
 
 func (s *BudgetProfileService) ListSavingsSources(ctx context.Context, profileID, userID uuid.UUID) ([]db.SavingsSource, error) {
@@ -571,20 +686,98 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
 		return db.SavingsSource{}, err
 	}
-	return s.profiles.UpdateSavingsSource(ctx, db.UpdateSavingsSourceParams{
+	n := len(inp.PaymentDays)
+	if n != 0 && n != 1 && n != 2 && n != 4 {
+		return db.SavingsSource{}, apperr.Invalid("payment_days must have 1, 2, or 4 entries")
+	}
+
+	old, err := s.profiles.GetSavingsSource(ctx, db.GetSavingsSourceParams{ID: id, BudgetProfileID: profileID})
+	if err != nil {
+		return db.SavingsSource{}, err
+	}
+
+	var personID *int32
+	if inp.PaymentMethodID != nil {
+		pm, err := s.transactions.GetPaymentMethod(ctx, *inp.PaymentMethodID)
+		if err != nil {
+			return db.SavingsSource{}, err
+		}
+		personID = pm.BudgetPersonID
+	}
+
+	freq := paymentDaysFrequency(n)
+	if n == 0 {
+		freq = "" // preserve existing if no days supplied
+	}
+
+	updated, err := s.profiles.UpdateSavingsSource(ctx, db.UpdateSavingsSourceParams{
 		ID:              id,
 		BudgetProfileID: profileID,
 		Name:            inp.Name,
 		Amount:          inp.Amount,
-		Frequency:       inp.Frequency,
-		BudgetPersonID:  inp.BudgetPersonID,
+		Frequency:       freq,
+		BudgetPersonID:  personID,
 		PaymentMethodID: inp.PaymentMethodID,
+		PaymentDays:     inp.PaymentDays,
 	})
+	if err != nil {
+		return db.SavingsSource{}, err
+	}
+
+	// Delete old auto-created transactions, then recreate with updated values.
+	if old.PaymentMethodID != nil {
+		cats, err := s.transactions.ListCategories(ctx, userID)
+		if err == nil {
+			for _, c := range cats {
+				if c.IsSystem && c.Name == "Savings" {
+					catID := c.ID
+					_ = s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
+						BudgetProfileID: profileID,
+						Name:            &old.Name,
+						PaymentMethodID: *old.PaymentMethodID,
+						CategoryID:      &catID,
+					})
+					break
+				}
+			}
+		}
+	}
+	if updated.PaymentMethodID != nil && len(updated.PaymentDays) > 0 {
+		s.createSavingsTransactions(ctx, profileID, userID, updated)
+	}
+
+	return updated, nil
 }
 
 func (s *BudgetProfileService) DeleteSavingsSource(ctx context.Context, id int32, profileID, userID uuid.UUID) error {
 	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
 		return err
+	}
+	src, err := s.profiles.GetSavingsSource(ctx, db.GetSavingsSourceParams{ID: id, BudgetProfileID: profileID})
+	if err != nil {
+		return err
+	}
+	if src.PaymentMethodID != nil {
+		cats, err := s.transactions.ListCategories(ctx, userID)
+		if err != nil {
+			return err
+		}
+		var savingsCatID *int32
+		for _, c := range cats {
+			if c.IsSystem && c.Name == "Savings" {
+				id32 := c.ID
+				savingsCatID = &id32
+				break
+			}
+		}
+		if savingsCatID != nil {
+			_ = s.transactions.DeleteSavingsSourceTransactions(ctx, db.DeleteSavingsSourceTransactionsParams{
+				BudgetProfileID: profileID,
+				Name:            &src.Name,
+				PaymentMethodID: *src.PaymentMethodID,
+				CategoryID:      savingsCatID,
+			})
+		}
 	}
 	return s.profiles.DeleteSavingsSource(ctx, db.DeleteSavingsSourceParams{
 		ID:              id,

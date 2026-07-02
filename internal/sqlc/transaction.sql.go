@@ -191,6 +191,36 @@ func (q *Queries) DeletePaymentMethodAndReassign(ctx context.Context, arg Delete
 	return err
 }
 
+const deleteSavingsSourceTransactions = `-- name: DeleteSavingsSourceTransactions :exec
+DELETE FROM transaction
+WHERE budget_period_id IN (
+    SELECT id FROM budget_period
+    WHERE budget_profile_id = $1::uuid AND is_archived = FALSE
+)
+AND name = $2
+AND payment_method_id = $3::uuid
+AND category_id = $4
+`
+
+type DeleteSavingsSourceTransactionsParams struct {
+	BudgetProfileID uuid.UUID `json:"budget_profile_id"`
+	Name            *string   `json:"name"`
+	PaymentMethodID uuid.UUID `json:"payment_method_id"`
+	CategoryID      *int32    `json:"category_id"`
+}
+
+// Deletes auto-created savings transactions when a savings source is removed.
+// Matches by name, payment method, and category within non-archived periods.
+func (q *Queries) DeleteSavingsSourceTransactions(ctx context.Context, arg DeleteSavingsSourceTransactionsParams) error {
+	_, err := q.db.Exec(ctx, deleteSavingsSourceTransactions,
+		arg.BudgetProfileID,
+		arg.Name,
+		arg.PaymentMethodID,
+		arg.CategoryID,
+	)
+	return err
+}
+
 const deleteTransaction = `-- name: DeleteTransaction :exec
 DELETE FROM transaction
 WHERE id = $1 AND budget_period_id = $2

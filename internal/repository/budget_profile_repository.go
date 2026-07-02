@@ -49,6 +49,7 @@ type BudgetProfileRepository interface {
 	UpdateIncomeEntry(ctx context.Context, arg db.UpdateIncomeEntryParams) (db.IncomeEntry, error)
 
 	// Savings Sources
+	GetSavingsSource(ctx context.Context, arg db.GetSavingsSourceParams) (db.SavingsSource, error)
 	AddSavingsSource(ctx context.Context, arg db.AddSavingsSourceParams) (db.SavingsSource, error)
 	ListSavingsSources(ctx context.Context, profileID uuid.UUID) ([]db.SavingsSource, error)
 	UpdateSavingsSource(ctx context.Context, arg db.UpdateSavingsSourceParams) (db.SavingsSource, error)
@@ -211,6 +212,14 @@ func (r *budgetProfileRepository) UpdateIncomeEntry(ctx context.Context, arg db.
 }
 
 // ── Savings Sources ───────────────────────────────────────────────────────────
+
+func (r *budgetProfileRepository) GetSavingsSource(ctx context.Context, arg db.GetSavingsSourceParams) (db.SavingsSource, error) {
+	s, err := r.q.GetSavingsSource(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.SavingsSource{}, apperr.NotFound("savings_source", fmt.Sprintf("%d", arg.ID))
+	}
+	return s, err
+}
 
 func (r *budgetProfileRepository) AddSavingsSource(ctx context.Context, arg db.AddSavingsSourceParams) (db.SavingsSource, error) {
 	return r.q.AddSavingsSource(ctx, arg)

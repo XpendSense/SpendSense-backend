@@ -31,6 +31,7 @@ type TransactionRepository interface {
 	CreatePaymentMethod(ctx context.Context, arg db.CreatePaymentMethodParams) (db.PaymentMethod, error)
 	UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
 	DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error
+	DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error
 }
 
 type transactionRepository struct {
@@ -135,4 +136,8 @@ func (r *transactionRepository) GetPaymentMethod(ctx context.Context, id uuid.UU
 
 func (r *transactionRepository) DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error {
 	return r.q.DeletePaymentMethodAndReassign(ctx, arg)
+}
+
+func (r *transactionRepository) DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error {
+	return r.q.DeleteSavingsSourceTransactions(ctx, arg)
 }

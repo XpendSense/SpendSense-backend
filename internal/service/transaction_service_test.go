@@ -30,7 +30,8 @@ type mockTransactionRepo struct {
 	createPaymentMethod           func(context.Context, db.CreatePaymentMethodParams) (db.PaymentMethod, error)
 	updatePaymentMethod           func(context.Context, db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
 	getPaymentMethod              func(context.Context, uuid.UUID) (db.PaymentMethod, error)
-	deletePaymentMethodAndReassign func(context.Context, db.DeletePaymentMethodAndReassignParams) error
+	deletePaymentMethodAndReassign       func(context.Context, db.DeletePaymentMethodAndReassignParams) error
+	deleteSavingsSourceTransactions      func(context.Context, db.DeleteSavingsSourceTransactionsParams) error
 }
 
 func (m *mockTransactionRepo) List(ctx context.Context, arg db.ListTransactionsParams) ([]db.Transaction, error) {
@@ -132,6 +133,12 @@ func (m *mockTransactionRepo) GetPaymentMethod(ctx context.Context, id uuid.UUID
 func (m *mockTransactionRepo) DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error {
 	if m.deletePaymentMethodAndReassign != nil {
 		return m.deletePaymentMethodAndReassign(ctx, arg)
+	}
+	return nil
+}
+func (m *mockTransactionRepo) DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error {
+	if m.deleteSavingsSourceTransactions != nil {
+		return m.deleteSavingsSourceTransactions(ctx, arg)
 	}
 	return nil
 }

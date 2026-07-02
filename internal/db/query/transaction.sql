@@ -42,6 +42,18 @@ RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
 DELETE FROM transaction
 WHERE id = $1 AND budget_period_id = $2;
 
+-- Deletes auto-created savings transactions when a savings source is removed.
+-- Matches by name, payment method, and category within non-archived periods.
+-- name: DeleteSavingsSourceTransactions :exec
+DELETE FROM transaction
+WHERE budget_period_id IN (
+    SELECT id FROM budget_period
+    WHERE budget_profile_id = sqlc.arg('budget_profile_id')::uuid AND is_archived = FALSE
+)
+AND name = sqlc.arg('name')
+AND payment_method_id = sqlc.arg('payment_method_id')::uuid
+AND category_id = sqlc.arg('category_id');
+
 -- name: GetCategory :one
 SELECT id, name, type_id, is_system, user_id, color
 FROM category
