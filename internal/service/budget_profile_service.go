@@ -637,6 +637,17 @@ func (s *BudgetProfileService) createSavingsTransactions(ctx context.Context, pr
 	freqIDByFreq := map[string]int32{"monthly": 4, "bi_weekly": 3, "weekly": 2}
 	txFreqID := freqIDByFreq[src.Frequency]
 
+	// Split amount evenly across payment days.
+	perDayAmount := src.Amount
+	n := len(src.PaymentDays)
+	if n > 1 && src.Amount.Int != nil {
+		perDayAmount = pgtype.Numeric{
+			Int:   new(big.Int).Quo(src.Amount.Int, big.NewInt(int64(n))),
+			Exp:   src.Amount.Exp,
+			Valid: src.Amount.Valid,
+		}
+	}
+
 	startTime := period.StartDate.Time
 	lastDay := time.Date(startTime.Year(), startTime.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
 	for _, day := range src.PaymentDays {
@@ -650,8 +661,8 @@ func (s *BudgetProfileService) createSavingsTransactions(ctx context.Context, pr
 		}
 		s.transactions.Create(ctx, db.CreateTransactionParams{ //nolint:errcheck
 			Name:                   &src.Name,
-			Amount:                 src.Amount,
-			PlannedAmount:          src.Amount,
+			Amount:                 perDayAmount,
+			PlannedAmount:          perDayAmount,
 			Date:                   txDate,
 			RenewalDate:            pgtype.Date{},
 			Recurring:              func() *bool { v := true; return &v }(),
