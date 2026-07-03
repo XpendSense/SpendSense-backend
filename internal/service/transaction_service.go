@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/mauro-afa91/spendsense/internal/apperr"
 	"github.com/mauro-afa91/spendsense/internal/repository"
 	db "github.com/mauro-afa91/spendsense/internal/sqlc"
@@ -12,10 +13,11 @@ import (
 type TransactionService struct {
 	transactions repository.TransactionRepository
 	profiles     repository.BudgetProfileRepository
+	allocations  repository.ExpenseAllocationRepository
 }
 
-func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository) *TransactionService {
-	return &TransactionService{transactions: transactions, profiles: profiles}
+func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository, allocations repository.ExpenseAllocationRepository) *TransactionService {
+	return &TransactionService{transactions: transactions, profiles: profiles, allocations: allocations}
 }
 
 func (s *TransactionService) assertPeriodOwner(ctx context.Context, periodID, userID uuid.UUID) error {
@@ -151,6 +153,51 @@ func (s *TransactionService) CreatePaymentMethod(ctx context.Context, arg db.Cre
 
 func (s *TransactionService) UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error) {
 	return s.transactions.UpdatePaymentMethod(ctx, arg)
+}
+
+// MarkTransactionAsPaid confirms payment for a fixed transaction, updating its
+// actual amount and date. If the paid amount differs from planned, also updates
+// the expense allocation so future periods carry the corrected planned cost.
+func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.UUID, periodID uuid.UUID, paidAmount pgtype.Numeric, paidDate pgtype.Date, userID uuid.UUID) (db.Transaction, error) {
+	period, err := s.profiles.GetPeriodByID(ctx, periodID)
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	profile, err := s.profiles.GetByID(ctx, period.BudgetProfileID)
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	if profile.UserID != userID {
+		return db.Transaction{}, apperr.Forbidden("access denied")
+	}
+
+	tx, err := s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
+		ID:             id,
+		BudgetPeriodID: periodID,
+		Amount:         paidAmount,
+		PaidDate:       paidDate,
+	})
+	if err != nil {
+		return db.Transaction{}, err
+	}
+
+	if tx.CategoryID != nil {
+		var personID *int32
+		if tx.PaymentMethodID != nil {
+			pm, pmErr := s.transactions.GetPaymentMethod(ctx, *tx.PaymentMethodID)
+			if pmErr == nil {
+				personID = pm.BudgetPersonID
+			}
+		}
+		_, _ = s.allocations.Upsert(ctx, db.UpsertExpenseAllocationParams{
+			BudgetProfileID: period.BudgetProfileID,
+			CategoryID:      *tx.CategoryID,
+			BudgetPersonID:  personID,
+			PlannedAmount:   paidAmount,
+		})
+	}
+
+	return tx, nil
 }
 
 func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replacementID, budgetProfileID, userID uuid.UUID) error {

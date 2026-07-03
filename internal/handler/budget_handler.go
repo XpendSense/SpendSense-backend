@@ -188,6 +188,26 @@ func (h *BudgetHandler) DeleteTransaction(ctx context.Context, req *connect.Requ
 	return connect.NewResponse(&v1.DeleteTransactionResponse{}), nil
 }
 
+func (h *BudgetHandler) MarkTransactionAsPaid(ctx context.Context, req *connect.Request[v1.MarkTransactionAsPaidRequest]) (*connect.Response[v1.MarkTransactionAsPaidResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	periodID, err := uuid.Parse(req.Msg.BudgetPeriodId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	tx, svcErr := h.transactions.MarkTransactionAsPaid(ctx, id, periodID, numericFromMoney(req.Msg.PaidAmount), dateFromProtoTS(req.Msg.PaidAt), userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.MarkTransactionAsPaidResponse{Transaction: toProtoTransaction(tx)}), nil
+}
+
 // ── Categories ────────────────────────────────────────────────────────────────
 
 func (h *BudgetHandler) ListCategories(ctx context.Context, _ *connect.Request[v1.ListCategoriesRequest]) (*connect.Response[v1.ListCategoriesResponse], error) {
@@ -383,7 +403,7 @@ func (h *BudgetHandler) DeletePaymentMethod(ctx context.Context, req *connect.Re
 // ── Conversion helpers ────────────────────────────────────────────────────────
 
 func toProtoTransaction(t db.Transaction) *v1.Transaction {
-	return &v1.Transaction{
+	proto := &v1.Transaction{
 		Id:                     t.ID.String(),
 		Name:                   nullStr(t.Name),
 		Amount:                 moneyFromNumeric(t.Amount),
@@ -396,7 +416,12 @@ func toProtoTransaction(t db.Transaction) *v1.Transaction {
 		PaymentMethodId:        nullUUID(t.PaymentMethodID),
 		TransactionFrequencyId: ptrInt32OrZero(t.TransactionFrequencyID),
 		TransactionTypeId:      ptrInt32OrZero(t.TransactionTypeID),
+		IsPaid:                 t.IsPaid,
 	}
+	if t.PaidDate.Valid {
+		proto.PaidAt = protoTSFromDate(t.PaidDate)
+	}
+	return proto
 }
 
 func ptrInt32OrZero(p *int32) int32 {

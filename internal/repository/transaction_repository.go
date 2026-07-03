@@ -18,6 +18,7 @@ type TransactionRepository interface {
 	Create(ctx context.Context, arg db.CreateTransactionParams) (db.Transaction, error)
 	Update(ctx context.Context, arg db.UpdateTransactionParams) (db.Transaction, error)
 	Delete(ctx context.Context, arg db.DeleteTransactionParams) error
+	MarkAsPaid(ctx context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error)
 
 	GetCategory(ctx context.Context, id int32) (db.GetCategoryRow, error)
 	ListCategories(ctx context.Context, userID uuid.UUID) ([]db.ListCategoriesRow, error)
@@ -72,6 +73,14 @@ func (r *transactionRepository) Update(ctx context.Context, arg db.UpdateTransac
 
 func (r *transactionRepository) Delete(ctx context.Context, arg db.DeleteTransactionParams) error {
 	return r.q.DeleteTransaction(ctx, arg)
+}
+
+func (r *transactionRepository) MarkAsPaid(ctx context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+	t, err := r.q.MarkTransactionAsPaid(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.Transaction{}, apperr.NotFound("transaction", arg.ID.String())
+	}
+	return t, err
 }
 
 func (r *transactionRepository) GetCategory(ctx context.Context, id int32) (db.GetCategoryRow, error) {
