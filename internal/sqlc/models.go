@@ -146,6 +146,8 @@ type Transaction struct {
 	PaymentMethodID        *uuid.UUID     `json:"payment_method_id"`
 	TransactionFrequencyID *int32         `json:"transaction_frequency_id"`
 	TransactionTypeID      *int32         `json:"transaction_type_id"`
+	IsPaid                 bool           `json:"is_paid"`
+	PaidDate               pgtype.Date    `json:"paid_date"`
 }
 
 type TransactionFrequency struct {

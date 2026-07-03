@@ -22,6 +22,7 @@ sql:
       - "internal/db/migrations/000017_add_language_currency.sql"
       - "internal/db/migrations/000018_savings_rework.sql"
       - "internal/db/migrations/000019_savings_payment_days.sql"
+      - "internal/db/migrations/000020_mark_transaction_paid.sql"
     gen:
       go:
         package: "db"
