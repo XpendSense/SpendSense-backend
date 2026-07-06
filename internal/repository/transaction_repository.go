@@ -13,7 +13,6 @@ import (
 
 type TransactionRepository interface {
 	List(ctx context.Context, arg db.ListTransactionsParams) ([]db.Transaction, error)
-	ListFixedRecurring(ctx context.Context, periodID uuid.UUID) ([]db.Transaction, error)
 	GetByID(ctx context.Context, id uuid.UUID) (db.Transaction, error)
 	Create(ctx context.Context, arg db.CreateTransactionParams) (db.Transaction, error)
 	Update(ctx context.Context, arg db.UpdateTransactionParams) (db.Transaction, error)
@@ -45,10 +44,6 @@ func NewTransactionRepository(q *db.Queries) TransactionRepository {
 
 func (r *transactionRepository) List(ctx context.Context, arg db.ListTransactionsParams) ([]db.Transaction, error) {
 	return r.q.ListTransactions(ctx, arg)
-}
-
-func (r *transactionRepository) ListFixedRecurring(ctx context.Context, periodID uuid.UUID) ([]db.Transaction, error) {
-	return r.q.ListFixedRecurringTransactionsByPeriod(ctx, &periodID)
 }
 
 func (r *transactionRepository) GetByID(ctx context.Context, id uuid.UUID) (db.Transaction, error) {

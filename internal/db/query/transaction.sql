@@ -1,26 +1,17 @@
 -- name: ListTransactions :many
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date
+       is_paid, paid_date, fixed_expense_id
 FROM transaction
 WHERE budget_period_id = sqlc.arg('budget_period_id')::uuid
   AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('transaction_type_id')::int IS NULL OR transaction_type_id = sqlc.narg('transaction_type_id'))
 ORDER BY date DESC NULLS LAST;
 
--- name: ListFixedRecurringTransactionsByPeriod :many
-SELECT t.id, t.name, t.amount, t.planned_amount, t.date, t.renewal_date, t.recurring,
-       t.budget_period_id, t.category_id, t.payment_method_id, t.transaction_frequency_id, t.transaction_type_id,
-       t.is_paid, t.paid_date
-FROM transaction t
-WHERE t.budget_period_id = $1
-  AND t.transaction_type_id = (SELECT tt.id FROM transaction_type tt WHERE tt.name = 'Fixed' LIMIT 1)
-  AND t.recurring = TRUE;
-
 -- name: GetTransactionByID :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date
+       is_paid, paid_date, fixed_expense_id
 FROM transaction
 WHERE id = $1
 LIMIT 1;
@@ -28,11 +19,12 @@ LIMIT 1;
 -- name: CreateTransaction :one
 INSERT INTO transaction (
     name, amount, planned_amount, date, renewal_date, recurring,
-    budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+    fixed_expense_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date;
+          is_paid, paid_date, fixed_expense_id;
 
 -- name: UpdateTransaction :one
 UPDATE transaction
@@ -41,7 +33,7 @@ SET name = $2, amount = $3, planned_amount = $4, date = $5, recurring = $6,
 WHERE id = $1
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date;
+          is_paid, paid_date, fixed_expense_id;
 
 -- name: DeleteTransaction :exec
 DELETE FROM transaction
@@ -56,7 +48,7 @@ WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date;
+          is_paid, paid_date, fixed_expense_id;
 
 -- Deletes auto-created savings transactions when a savings source is removed.
 -- Matches by name, payment method, and category within non-archived periods.

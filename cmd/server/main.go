@@ -47,10 +47,11 @@ func main() {
 	queries := sqlcdb.New(pool)
 
 	// Repositories
-	userRepo           := repository.NewUserRepository(queries)
-	budgetProfileRepo  := repository.NewBudgetProfileRepository(queries)
-	transactionRepo    := repository.NewTransactionRepository(queries)
-	allocationRepo     := repository.NewExpenseAllocationRepository(queries)
+	userRepo            := repository.NewUserRepository(queries)
+	budgetProfileRepo   := repository.NewBudgetProfileRepository(queries)
+	transactionRepo     := repository.NewTransactionRepository(queries)
+	allocationRepo      := repository.NewExpenseAllocationRepository(queries)
+	fixedExpenseRepo    := repository.NewFixedExpenseRepository(queries)
 
 	// Auth
 	jwtSvc     := auth.NewJWTService(cfg.JWTSecret, cfg.JWTLifetimeSeconds)
@@ -59,8 +60,8 @@ func main() {
 	// Services
 	authSvc        := service.NewAuthService(userRepo, jwtSvc, googleOAuth)
 	userSvc        := service.NewUserService(userRepo)
-	profileSvc     := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, userRepo)
-	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo)
+	profileSvc     := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo)
+	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo)
 	allocationSvc  := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
 
 	// Procedures that don't require authentication

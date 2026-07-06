@@ -11,13 +11,14 @@ import (
 )
 
 type TransactionService struct {
-	transactions repository.TransactionRepository
-	profiles     repository.BudgetProfileRepository
-	allocations  repository.ExpenseAllocationRepository
+	transactions  repository.TransactionRepository
+	profiles      repository.BudgetProfileRepository
+	allocations   repository.ExpenseAllocationRepository
+	fixedExpenses repository.FixedExpenseRepository
 }
 
-func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository, allocations repository.ExpenseAllocationRepository) *TransactionService {
-	return &TransactionService{transactions: transactions, profiles: profiles, allocations: allocations}
+func NewTransactionService(transactions repository.TransactionRepository, profiles repository.BudgetProfileRepository, allocations repository.ExpenseAllocationRepository, fixedExpenses repository.FixedExpenseRepository) *TransactionService {
+	return &TransactionService{transactions: transactions, profiles: profiles, allocations: allocations, fixedExpenses: fixedExpenses}
 }
 
 func (s *TransactionService) assertPeriodOwner(ctx context.Context, periodID, userID uuid.UUID) error {
@@ -194,6 +195,14 @@ func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.
 			CategoryID:      *tx.CategoryID,
 			BudgetPersonID:  personID,
 			PlannedAmount:   paidAmount,
+		})
+	}
+
+	// Keep the fixed expense template in sync when the paid amount differs from planned.
+	if tx.FixedExpenseID != nil {
+		_ = s.fixedExpenses.UpdatePlannedAmount(ctx, db.UpdateFixedExpensePlannedAmountParams{
+			ID:            *tx.FixedExpenseID,
+			PlannedAmount: paidAmount,
 		})
 	}
 

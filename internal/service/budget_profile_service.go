@@ -18,17 +18,19 @@ import (
 )
 
 type BudgetProfileService struct {
-	profiles     repository.BudgetProfileRepository
-	transactions repository.TransactionRepository
-	users        repository.UserRepository
+	profiles      repository.BudgetProfileRepository
+	transactions  repository.TransactionRepository
+	fixedExpenses repository.FixedExpenseRepository
+	users         repository.UserRepository
 }
 
 func NewBudgetProfileService(
 	profiles repository.BudgetProfileRepository,
 	transactions repository.TransactionRepository,
+	fixedExpenses repository.FixedExpenseRepository,
 	users repository.UserRepository,
 ) *BudgetProfileService {
-	return &BudgetProfileService{profiles: profiles, transactions: transactions, users: users}
+	return &BudgetProfileService{profiles: profiles, transactions: transactions, fixedExpenses: fixedExpenses, users: users}
 }
 
 // ── Ownership ─────────────────────────────────────────────────────────────────
@@ -193,39 +195,35 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 		s.createSavingsTransactions(ctx, profile.ID, profile.UserID, src)
 	}
 
-	// Carry forward fixed+recurring transactions from the previous period.
-	if latest.ID != uuid.Nil {
-		prevTxs, _ := s.transactions.ListFixedRecurring(ctx, latest.ID)
-		for _, tx := range prevTxs {
-			if tx.RenewalDate.Valid && tx.RenewalDate.Time.Before(startDate) {
-				continue // expired
-			}
-			// Advance the date to the same day-of-month in the new period's month.
-			var newDate pgtype.Date
-			if tx.Date.Valid {
-				day := tx.Date.Time.Day()
-				// Clamp to the last day of the target month (e.g. Jan 31 → Feb 28).
-				target := time.Date(startDate.Year(), startDate.Month(), day, 0, 0, 0, 0, time.UTC)
-				if target.Month() != startDate.Month() {
-					// Overflowed into the next month — roll back to last day of startDate.Month().
-					target = time.Date(startDate.Year(), startDate.Month()+1, 0, 0, 0, 0, 0, time.UTC)
-				}
-				newDate = pgtype.Date{Time: target, Valid: true}
-			}
-			_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
-				Name:                   tx.Name,
-				Amount:                 tx.Amount,
-				PlannedAmount:          tx.PlannedAmount,
-				Date:                   newDate,
-				RenewalDate:            tx.RenewalDate,
-				Recurring:              tx.Recurring,
-				BudgetPeriodID:         &period.ID,
-				CategoryID:             tx.CategoryID,
-				PaymentMethodID:        tx.PaymentMethodID,
-				TransactionFrequencyID: tx.TransactionFrequencyID,
-				TransactionTypeID:      tx.TransactionTypeID,
-			})
+	// Spawn fixed expense transactions for the new period.
+	fixedExpenses, _ := s.fixedExpenses.List(ctx, profile.ID)
+	txTypeFixed := int32(1)
+	lastDay := time.Date(startDate.Year(), startDate.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	for _, fe := range fixedExpenses {
+		day := int(fe.DayOfMonth)
+		if day < 1 {
+			day = 1
 		}
+		if day > lastDay {
+			day = lastDay
+		}
+		txDate := pgtype.Date{
+			Time:  time.Date(startDate.Year(), startDate.Month(), day, 0, 0, 0, 0, time.UTC),
+			Valid: true,
+		}
+		feID := fe.ID
+		name := fe.Name
+		_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
+			Name:              &name,
+			Amount:            fe.PlannedAmount,
+			PlannedAmount:     fe.PlannedAmount,
+			Date:              txDate,
+			BudgetPeriodID:    &period.ID,
+			CategoryID:        fe.CategoryID,
+			PaymentMethodID:   fe.PaymentMethodID,
+			TransactionTypeID: &txTypeFixed,
+			FixedExpenseID:    &feID,
+		})
 	}
 
 	return period, nil
@@ -802,6 +800,153 @@ func (s *BudgetProfileService) DeleteSavingsSource(ctx context.Context, id int32
 		}
 	}
 	return s.profiles.DeleteSavingsSource(ctx, db.DeleteSavingsSourceParams{
+		ID:              id,
+		BudgetProfileID: profileID,
+	})
+}
+
+// ── Fixed Expenses ────────────────────────────────────────────────────────────
+
+type FixedExpenseInput struct {
+	Name            string
+	PlannedAmount   pgtype.Numeric
+	CategoryID      *int32
+	PaymentMethodID *uuid.UUID
+	DayOfMonth      int32
+}
+
+func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID, userID uuid.UUID, inp FixedExpenseInput) (db.FixedExpense, *db.Transaction, error) {
+	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+		return db.FixedExpense{}, nil, err
+	}
+	day := inp.DayOfMonth
+	if day < 1 {
+		day = 1
+	}
+	fe, err := s.fixedExpenses.Create(ctx, db.CreateFixedExpenseParams{
+		BudgetProfileID: profileID,
+		Name:            inp.Name,
+		PlannedAmount:   inp.PlannedAmount,
+		CategoryID:      inp.CategoryID,
+		PaymentMethodID: inp.PaymentMethodID,
+		DayOfMonth:      day,
+	})
+	if err != nil {
+		return db.FixedExpense{}, nil, err
+	}
+
+	// Spawn transaction in the active period.
+	period, err := s.profiles.GetLatestPeriod(ctx, profileID)
+	if err != nil {
+		return fe, nil, nil // no active period — still return the expense
+	}
+	startDate := period.StartDate.Time
+	lastDay := time.Date(startDate.Year(), startDate.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	d := int(day)
+	if d > lastDay {
+		d = lastDay
+	}
+	txDate := pgtype.Date{
+		Time:  time.Date(startDate.Year(), startDate.Month(), d, 0, 0, 0, 0, time.UTC),
+		Valid: true,
+	}
+	txTypeFixed := int32(1)
+	feID := fe.ID
+	name := fe.Name
+	tx, txErr := s.transactions.Create(ctx, db.CreateTransactionParams{
+		Name:              &name,
+		Amount:            fe.PlannedAmount,
+		PlannedAmount:     fe.PlannedAmount,
+		Date:              txDate,
+		BudgetPeriodID:    &period.ID,
+		CategoryID:        fe.CategoryID,
+		PaymentMethodID:   fe.PaymentMethodID,
+		TransactionTypeID: &txTypeFixed,
+		FixedExpenseID:    &feID,
+	})
+	if txErr != nil {
+		return fe, nil, nil
+	}
+	return fe, &tx, nil
+}
+
+func (s *BudgetProfileService) ListFixedExpenses(ctx context.Context, profileID, userID uuid.UUID) ([]db.FixedExpense, error) {
+	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+		return nil, err
+	}
+	return s.fixedExpenses.List(ctx, profileID)
+}
+
+func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.UUID, profileID, userID uuid.UUID, inp FixedExpenseInput) (db.FixedExpense, error) {
+	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+		return db.FixedExpense{}, err
+	}
+	day := inp.DayOfMonth
+	if day < 1 {
+		day = 1
+	}
+	fe, err := s.fixedExpenses.Update(ctx, db.UpdateFixedExpenseParams{
+		ID:              id,
+		BudgetProfileID: profileID,
+		Name:            inp.Name,
+		PlannedAmount:   inp.PlannedAmount,
+		CategoryID:      inp.CategoryID,
+		PaymentMethodID: inp.PaymentMethodID,
+		DayOfMonth:      day,
+	})
+	if err != nil {
+		return db.FixedExpense{}, err
+	}
+
+	// Propagate changes to the unpaid transaction in the active period.
+	period, err := s.profiles.GetLatestPeriod(ctx, profileID)
+	if err != nil {
+		return fe, nil
+	}
+	startDate := period.StartDate.Time
+	lastDay := time.Date(startDate.Year(), startDate.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	d := int(day)
+	if d > lastDay {
+		d = lastDay
+	}
+	txDate := pgtype.Date{
+		Time:  time.Date(startDate.Year(), startDate.Month(), d, 0, 0, 0, 0, time.UTC),
+		Valid: true,
+	}
+	name := fe.Name
+	_ = s.fixedExpenses.UpdateTransactionFromFixedExpense(ctx, db.UpdateTransactionFromFixedExpenseParams{
+		FixedExpenseID:  fe.ID,
+		BudgetProfileID: profileID,
+		Name:            &name,
+		PlannedAmount:   fe.PlannedAmount,
+		CategoryID:      fe.CategoryID,
+		PaymentMethodID: fe.PaymentMethodID,
+		Date:            txDate,
+	})
+
+	return fe, nil
+}
+
+func (s *BudgetProfileService) DeleteFixedExpense(ctx context.Context, id uuid.UUID, profileID, userID uuid.UUID) error {
+	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+		return err
+	}
+	// Verify ownership: the expense must belong to this profile.
+	fe, err := s.fixedExpenses.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if fe.BudgetProfileID != profileID {
+		return apperr.Forbidden("access denied")
+	}
+
+	// Remove unpaid transaction from the active period.
+	_ = s.fixedExpenses.DeleteUnpaidTransactions(ctx, db.DeleteUnpaidTransactionByFixedExpenseParams{
+		FixedExpenseID:  id,
+		BudgetProfileID: profileID,
+	})
+
+	return s.fixedExpenses.Deactivate(ctx, db.DeactivateFixedExpenseParams{
 		ID:              id,
 		BudgetProfileID: profileID,
 	})

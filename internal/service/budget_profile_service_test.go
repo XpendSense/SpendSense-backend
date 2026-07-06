@@ -278,7 +278,7 @@ func TestCreateBudgetProfile_Success(t *testing.T) {
 		},
 	}
 
-	svc := NewBudgetProfileService(profileRepo, mockTx, mockUser)
+	svc := NewBudgetProfileService(profileRepo, mockTx, &mockFixedExpenseRepo{}, mockUser)
 	profile, _, err := svc.Create(context.Background(), userID, "Home Budget", "monthly")
 
 	require.NoError(t, err)
@@ -296,6 +296,7 @@ func TestCreateBudgetProfile_Duplicate(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -317,6 +318,7 @@ func TestGetBudgetProfile_Forbidden_WhenNotOwner(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -341,6 +343,7 @@ func TestRemovePerson_Forbidden_WhenRemovingOwner(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -367,6 +370,7 @@ func TestAddIncomeSource_Success(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -407,6 +411,7 @@ func TestAddSavingsSource_Success(t *testing.T) {
 				return db.PaymentMethod{ID: id, BudgetPersonID: &personID}, nil
 			},
 		},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -432,6 +437,7 @@ func TestAddSavingsSource_Forbidden(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -458,6 +464,7 @@ func TestListSavingsSources_Success(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -483,6 +490,7 @@ func TestUpdateSavingsSource_Success(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -514,6 +522,7 @@ func TestDeleteSavingsSource_Success(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -534,6 +543,7 @@ func TestDeleteSavingsSource_Forbidden(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -554,6 +564,7 @@ func TestUpdatePerson_Success(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -574,6 +585,7 @@ func TestUpdatePerson_Forbidden(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{},
 	)
 
@@ -613,6 +625,7 @@ func TestCreateBudgetPeriod_TaxReserveUpserted_ForUSProfile(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{
 			getByID: func(_ context.Context, id uuid.UUID) (db.User, error) {
 				if id == ownerID {
@@ -642,6 +655,7 @@ func TestAddPeople_CountryMismatch_Rejected(t *testing.T) {
 			},
 		},
 		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
 		&mockUserRepo{
 			getByID: func(_ context.Context, id uuid.UUID) (db.User, error) {
 				if id == foreignUserID {
@@ -658,4 +672,174 @@ func TestAddPeople_CountryMismatch_Rejected(t *testing.T) {
 	require.Error(t, err)
 	var inv *apperr.ValidationError
 	assert.True(t, errors.As(err, &inv), "expected ValidationError for country mismatch")
+}
+
+// ── Fixed expense tests ───────────────────────────────────────────────────────
+
+func TestCreateFixedExpense_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{
+			create: func(_ context.Context, arg db.CreateFixedExpenseParams) (db.FixedExpense, error) {
+				assert.Equal(t, "Rent", arg.Name)
+				assert.Equal(t, int32(1), arg.DayOfMonth)
+				return db.FixedExpense{ID: feID, BudgetProfileID: profileID, Name: arg.Name, DayOfMonth: arg.DayOfMonth}, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	fe, tx, err := svc.CreateFixedExpense(context.Background(), profileID, userID, FixedExpenseInput{
+		Name:       "Rent",
+		DayOfMonth: 1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Rent", fe.Name)
+	assert.Nil(t, tx) // no active period in mock
+}
+
+func TestCreateFixedExpense_Forbidden(t *testing.T) {
+	ownerID := uuid.New()
+	otherID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{},
+		&mockUserRepo{},
+	)
+
+	_, _, err := svc.CreateFixedExpense(context.Background(), profileID, otherID, FixedExpenseInput{Name: "Rent"})
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	assert.True(t, errors.As(err, &forbidden))
+}
+
+func TestListFixedExpenses_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{
+					{Name: "Rent"},
+					{Name: "Internet"},
+				}, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	items, err := svc.ListFixedExpenses(context.Background(), profileID, userID)
+	require.NoError(t, err)
+	assert.Len(t, items, 2)
+}
+
+func TestUpdateFixedExpense_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{
+			update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
+				assert.Equal(t, feID, arg.ID)
+				assert.Equal(t, "New Rent", arg.Name)
+				return db.FixedExpense{ID: feID, Name: arg.Name}, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	fe, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
+		Name:       "New Rent",
+		DayOfMonth: 1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "New Rent", fe.Name)
+}
+
+func TestDeleteFixedExpense_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	deactivated := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.FixedExpense, error) {
+				return db.FixedExpense{ID: id, BudgetProfileID: profileID}, nil
+			},
+			deactivate: func(_ context.Context, arg db.DeactivateFixedExpenseParams) error {
+				assert.Equal(t, feID, arg.ID)
+				deactivated = true
+				return nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	err := svc.DeleteFixedExpense(context.Background(), feID, profileID, userID)
+	require.NoError(t, err)
+	assert.True(t, deactivated)
+}
+
+func TestDeleteFixedExpense_Forbidden_WrongProfile(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	otherProfileID := uuid.New()
+	feID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.FixedExpense, error) {
+				return db.FixedExpense{ID: id, BudgetProfileID: otherProfileID}, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	err := svc.DeleteFixedExpense(context.Background(), feID, profileID, userID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	assert.True(t, errors.As(err, &forbidden))
 }

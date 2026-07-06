@@ -23,6 +23,7 @@ sql:
       - "internal/db/migrations/000018_savings_rework.sql"
       - "internal/db/migrations/000019_savings_payment_days.sql"
       - "internal/db/migrations/000020_mark_transaction_paid.sql"
+      - "internal/db/migrations/000021_fixed_expenses.sql"
     gen:
       go:
         package: "db"

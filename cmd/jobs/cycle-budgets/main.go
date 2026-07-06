@@ -30,11 +30,12 @@ func main() {
 	defer pool.Close()
 
 	queries := sqlcdb.New(pool)
-	profileRepo := repository.NewBudgetProfileRepository(queries)
-	txRepo := repository.NewTransactionRepository(queries)
-	userRepo := repository.NewUserRepository(queries)
+	profileRepo      := repository.NewBudgetProfileRepository(queries)
+	txRepo           := repository.NewTransactionRepository(queries)
+	fixedExpenseRepo := repository.NewFixedExpenseRepository(queries)
+	userRepo         := repository.NewUserRepository(queries)
 
-	svc := service.NewBudgetProfileService(profileRepo, txRepo, userRepo)
+	svc := service.NewBudgetProfileService(profileRepo, txRepo, fixedExpenseRepo, userRepo)
 
 	today := time.Now().UTC()
 	yesterday := today.AddDate(0, 0, -1)

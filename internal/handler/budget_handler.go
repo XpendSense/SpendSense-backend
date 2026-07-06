@@ -421,6 +421,27 @@ func toProtoTransaction(t db.Transaction) *v1.Transaction {
 	if t.PaidDate.Valid {
 		proto.PaidAt = protoTSFromDate(t.PaidDate)
 	}
+	if t.FixedExpenseID != nil {
+		proto.FixedExpenseId = t.FixedExpenseID.String()
+	}
+	return proto
+}
+
+func toProtoFixedExpense(fe db.FixedExpense) *v1.FixedExpense {
+	proto := &v1.FixedExpense{
+		Id:              fe.ID.String(),
+		BudgetProfileId: fe.BudgetProfileID.String(),
+		Name:            fe.Name,
+		PlannedAmount:   moneyFromNumeric(fe.PlannedAmount),
+		DayOfMonth:      fe.DayOfMonth,
+		IsActive:        fe.IsActive,
+	}
+	if fe.CategoryID != nil {
+		proto.CategoryId = *fe.CategoryID
+	}
+	if fe.PaymentMethodID != nil {
+		proto.PaymentMethodId = fe.PaymentMethodID.String()
+	}
 	return proto
 }
 
@@ -429,6 +450,125 @@ func ptrInt32OrZero(p *int32) int32 {
 		return 0
 	}
 	return *p
+}
+
+// ── Fixed Expenses ────────────────────────────────────────────────────────────
+
+func (h *BudgetHandler) ListFixedExpenses(ctx context.Context, req *connect.Request[v1.ListFixedExpensesRequest]) (*connect.Response[v1.ListFixedExpensesResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	expenses, svcErr := h.profiles.ListFixedExpenses(ctx, profileID, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	protos := make([]*v1.FixedExpense, len(expenses))
+	for i, fe := range expenses {
+		protos[i] = toProtoFixedExpense(fe)
+	}
+	return connect.NewResponse(&v1.ListFixedExpensesResponse{Expenses: protos}), nil
+}
+
+func (h *BudgetHandler) CreateFixedExpense(ctx context.Context, req *connect.Request[v1.CreateFixedExpenseRequest]) (*connect.Response[v1.CreateFixedExpenseResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	var catID *int32
+	if req.Msg.CategoryId != 0 {
+		v := req.Msg.CategoryId
+		catID = &v
+	}
+	var pmID *uuid.UUID
+	if req.Msg.PaymentMethodId != "" {
+		pid, parseErr := uuid.Parse(req.Msg.PaymentMethodId)
+		if parseErr != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, parseErr)
+		}
+		pmID = &pid
+	}
+	fe, tx, svcErr := h.profiles.CreateFixedExpense(ctx, profileID, userID, service.FixedExpenseInput{
+		Name:            req.Msg.Name,
+		PlannedAmount:   numericFromMoney(req.Msg.PlannedAmount),
+		CategoryID:      catID,
+		PaymentMethodID: pmID,
+		DayOfMonth:      req.Msg.DayOfMonth,
+	})
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	resp := &v1.CreateFixedExpenseResponse{Expense: toProtoFixedExpense(fe)}
+	if tx != nil {
+		resp.Transaction = toProtoTransaction(*tx)
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *BudgetHandler) UpdateFixedExpense(ctx context.Context, req *connect.Request[v1.UpdateFixedExpenseRequest]) (*connect.Response[v1.UpdateFixedExpenseResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	var catID *int32
+	if req.Msg.CategoryId != 0 {
+		v := req.Msg.CategoryId
+		catID = &v
+	}
+	var pmID *uuid.UUID
+	if req.Msg.PaymentMethodId != "" {
+		pid, parseErr := uuid.Parse(req.Msg.PaymentMethodId)
+		if parseErr != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, parseErr)
+		}
+		pmID = &pid
+	}
+	fe, svcErr := h.profiles.UpdateFixedExpense(ctx, id, profileID, userID, service.FixedExpenseInput{
+		Name:            req.Msg.Name,
+		PlannedAmount:   numericFromMoney(req.Msg.PlannedAmount),
+		CategoryID:      catID,
+		PaymentMethodID: pmID,
+		DayOfMonth:      req.Msg.DayOfMonth,
+	})
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.UpdateFixedExpenseResponse{Expense: toProtoFixedExpense(fe)}), nil
+}
+
+func (h *BudgetHandler) DeleteFixedExpense(ctx context.Context, req *connect.Request[v1.DeleteFixedExpenseRequest]) (*connect.Response[v1.DeleteFixedExpenseResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if svcErr := h.profiles.DeleteFixedExpense(ctx, id, profileID, userID); svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.DeleteFixedExpenseResponse{}), nil
 }
 
 // ── Expense Allocations ───────────────────────────────────────────────────────

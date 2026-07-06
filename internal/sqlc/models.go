@@ -72,6 +72,18 @@ type ExpenseAllocation struct {
 	PlannedAmount   pgtype.Numeric `json:"planned_amount"`
 }
 
+type FixedExpense struct {
+	ID              uuid.UUID          `json:"id"`
+	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
+	Name            string             `json:"name"`
+	PlannedAmount   pgtype.Numeric     `json:"planned_amount"`
+	CategoryID      *int32             `json:"category_id"`
+	PaymentMethodID *uuid.UUID         `json:"payment_method_id"`
+	DayOfMonth      int32              `json:"day_of_month"`
+	IsActive        bool               `json:"is_active"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type IncomeEntry struct {
 	ID             int32              `json:"id"`
 	BudgetPeriodID uuid.UUID          `json:"budget_period_id"`
@@ -148,6 +160,7 @@ type Transaction struct {
 	TransactionTypeID      *int32         `json:"transaction_type_id"`
 	IsPaid                 bool           `json:"is_paid"`
 	PaidDate               pgtype.Date    `json:"paid_date"`
+	FixedExpenseID         *uuid.UUID     `json:"fixed_expense_id"`
 }
 
 type TransactionFrequency struct {
