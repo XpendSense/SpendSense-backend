@@ -158,7 +158,7 @@ func (s *TransactionService) UpdatePaymentMethod(ctx context.Context, arg db.Upd
 
 // MarkTransactionAsPaid confirms payment for a fixed transaction, updating its
 // actual amount and date. If the paid amount differs from planned, also updates
-// the expense allocation so future periods carry the corrected planned cost.
+// the fixed expense template so future periods carry the corrected planned cost.
 func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.UUID, periodID uuid.UUID, paidAmount pgtype.Numeric, paidDate pgtype.Date, userID uuid.UUID) (db.Transaction, error) {
 	period, err := s.profiles.GetPeriodByID(ctx, periodID)
 	if err != nil {
@@ -180,22 +180,6 @@ func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.
 	})
 	if err != nil {
 		return db.Transaction{}, err
-	}
-
-	if tx.CategoryID != nil {
-		var personID *int32
-		if tx.PaymentMethodID != nil {
-			pm, pmErr := s.transactions.GetPaymentMethod(ctx, *tx.PaymentMethodID)
-			if pmErr == nil {
-				personID = pm.BudgetPersonID
-			}
-		}
-		_, _ = s.allocations.Upsert(ctx, db.UpsertExpenseAllocationParams{
-			BudgetProfileID: period.BudgetProfileID,
-			CategoryID:      *tx.CategoryID,
-			BudgetPersonID:  personID,
-			PlannedAmount:   paidAmount,
-		})
 	}
 
 	// Keep the fixed expense template in sync when the paid amount differs from planned.
