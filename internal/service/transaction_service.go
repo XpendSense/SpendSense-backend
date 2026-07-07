@@ -209,6 +209,24 @@ func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.
 	return tx, nil
 }
 
+func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uuid.UUID, periodID uuid.UUID, userID uuid.UUID) (db.Transaction, error) {
+	period, err := s.profiles.GetPeriodByID(ctx, periodID)
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	profile, err := s.profiles.GetByID(ctx, period.BudgetProfileID)
+	if err != nil {
+		return db.Transaction{}, err
+	}
+	if profile.UserID != userID {
+		return db.Transaction{}, apperr.Forbidden("access denied")
+	}
+	return s.transactions.UnmarkAsPaid(ctx, db.UnmarkTransactionAsPaidParams{
+		ID:             id,
+		BudgetPeriodID: periodID,
+	})
+}
+
 func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replacementID, budgetProfileID, userID uuid.UUID) error {
 	method, err := s.transactions.GetPaymentMethod(ctx, id)
 	if err != nil {

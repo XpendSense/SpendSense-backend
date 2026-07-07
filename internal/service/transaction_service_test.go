@@ -33,6 +33,7 @@ type mockTransactionRepo struct {
 	deletePaymentMethodAndReassign       func(context.Context, db.DeletePaymentMethodAndReassignParams) error
 	deleteSavingsSourceTransactions      func(context.Context, db.DeleteSavingsSourceTransactionsParams) error
 	markAsPaid                           func(context.Context, db.MarkTransactionAsPaidParams) (db.Transaction, error)
+	unmarkAsPaid                         func(context.Context, db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
 }
 
 // ── Mock fixed expense repo ───────────────────────────────────────────────────
@@ -242,6 +243,13 @@ func (m *mockTransactionRepo) DeleteSavingsSourceTransactions(ctx context.Contex
 func (m *mockTransactionRepo) MarkAsPaid(ctx context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
 	if m.markAsPaid != nil {
 		return m.markAsPaid(ctx, arg)
+	}
+	return db.Transaction{}, nil
+}
+
+func (m *mockTransactionRepo) UnmarkAsPaid(ctx context.Context, arg db.UnmarkTransactionAsPaidParams) (db.Transaction, error) {
+	if m.unmarkAsPaid != nil {
+		return m.unmarkAsPaid(ctx, arg)
 	}
 	return db.Transaction{}, nil
 }
@@ -631,4 +639,62 @@ func TestDeletePaymentMethod_NotFound_WhenMethodMissing(t *testing.T) {
 	require.Error(t, err)
 	var notFound *apperr.NotFoundError
 	require.ErrorAs(t, err, &notFound)
+}
+
+// ── UnmarkTransactionAsPaid tests ─────────────────────────────────────────────
+
+func TestUnmarkTransactionAsPaid_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			unmarkAsPaid: func(_ context.Context, arg db.UnmarkTransactionAsPaidParams) (db.Transaction, error) {
+				assert.Equal(t, txID, arg.ID)
+				assert.Equal(t, periodID, arg.BudgetPeriodID)
+				return db.Transaction{ID: txID, IsPaid: false}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+	)
+
+	tx, err := svc.UnmarkTransactionAsPaid(context.Background(), txID, periodID, userID)
+	require.NoError(t, err)
+	assert.Equal(t, txID, tx.ID)
+	assert.False(t, tx.IsPaid)
+}
+
+func TestUnmarkTransactionAsPaid_Forbidden_WhenNotOwner(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+	)
+
+	_, err := svc.UnmarkTransactionAsPaid(context.Background(), uuid.New(), periodID, uuid.New())
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
 }

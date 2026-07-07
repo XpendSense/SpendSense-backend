@@ -50,6 +50,17 @@ RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
           is_paid, paid_date, fixed_expense_id;
 
+-- name: UnmarkTransactionAsPaid :one
+UPDATE transaction
+SET is_paid = FALSE,
+    paid_date = NULL,
+    amount = planned_amount
+WHERE id = sqlc.arg('id')::uuid
+  AND budget_period_id = sqlc.arg('budget_period_id')::uuid
+RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+          is_paid, paid_date, fixed_expense_id;
+
 -- Deletes auto-created savings transactions when a savings source is removed.
 -- Matches by name, payment method, and category within non-archived periods.
 -- name: DeleteSavingsSourceTransactions :exec

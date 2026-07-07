@@ -567,6 +567,46 @@ func (q *Queries) MarkTransactionAsPaid(ctx context.Context, arg MarkTransaction
 	return i, err
 }
 
+const unmarkTransactionAsPaid = `-- name: UnmarkTransactionAsPaid :one
+UPDATE transaction
+SET is_paid = FALSE,
+    paid_date = NULL,
+    amount = planned_amount
+WHERE id = $1::uuid
+  AND budget_period_id = $2::uuid
+RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+          is_paid, paid_date, fixed_expense_id
+`
+
+type UnmarkTransactionAsPaidParams struct {
+	ID             uuid.UUID `json:"id"`
+	BudgetPeriodID uuid.UUID `json:"budget_period_id"`
+}
+
+func (q *Queries) UnmarkTransactionAsPaid(ctx context.Context, arg UnmarkTransactionAsPaidParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, unmarkTransactionAsPaid, arg.ID, arg.BudgetPeriodID)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Amount,
+		&i.PlannedAmount,
+		&i.Date,
+		&i.RenewalDate,
+		&i.Recurring,
+		&i.BudgetPeriodID,
+		&i.CategoryID,
+		&i.PaymentMethodID,
+		&i.TransactionFrequencyID,
+		&i.TransactionTypeID,
+		&i.IsPaid,
+		&i.PaidDate,
+		&i.FixedExpenseID,
+	)
+	return i, err
+}
+
 const updateCategory = `-- name: UpdateCategory :one
 UPDATE category
 SET name = $1, color = $2

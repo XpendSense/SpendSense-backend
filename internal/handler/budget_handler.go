@@ -208,6 +208,26 @@ func (h *BudgetHandler) MarkTransactionAsPaid(ctx context.Context, req *connect.
 	return connect.NewResponse(&v1.MarkTransactionAsPaidResponse{Transaction: toProtoTransaction(tx)}), nil
 }
 
+func (h *BudgetHandler) UnmarkTransactionAsPaid(ctx context.Context, req *connect.Request[v1.UnmarkTransactionAsPaidRequest]) (*connect.Response[v1.UnmarkTransactionAsPaidResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	periodID, err := uuid.Parse(req.Msg.BudgetPeriodId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	tx, svcErr := h.transactions.UnmarkTransactionAsPaid(ctx, id, periodID, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.UnmarkTransactionAsPaidResponse{Transaction: toProtoTransaction(tx)}), nil
+}
+
 // ── Categories ────────────────────────────────────────────────────────────────
 
 func (h *BudgetHandler) ListCategories(ctx context.Context, _ *connect.Request[v1.ListCategoriesRequest]) (*connect.Response[v1.ListCategoriesResponse], error) {
