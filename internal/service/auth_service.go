@@ -17,6 +17,22 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// defaultTokenLifetime is the JWT lifetime for Login (remember_me=false),
+// Register, and Google OAuth exchange — every auth flow except Login's
+// remember-me path. Deliberately independent of JWTService's configured
+// lifetime (JWT_LIFETIME_SECONDS): that value is a leftover default meant
+// for GenerateToken() callers, not a lifetime any flow should silently
+// inherit. Register and ExchangeGoogleCode used to call GenerateToken()
+// and inherit whatever JWT_LIFETIME_SECONDS happened to be, which could
+// be far shorter than Login's 24h — the cookie/token lifetimes matched
+// (both now derive from the RPC's real expires_in), but the actual
+// session length for those two flows was inconsistent with Login and
+// with what the auth spec documents.
+const (
+	defaultTokenLifetime    = 24 * time.Hour
+	rememberMeTokenLifetime = 90 * 24 * time.Hour
+)
+
 type AuthService struct {
 	users  repository.UserRepository
 	jwt    *auth.JWTService
@@ -50,9 +66,9 @@ func (s *AuthService) Login(ctx context.Context, email, password string, remembe
 		return LoginResult{}, apperr.Invalid("invalid email or password")
 	}
 
-	lifetime := 24 * time.Hour
+	lifetime := defaultTokenLifetime
 	if rememberMe {
-		lifetime = 90 * 24 * time.Hour
+		lifetime = rememberMeTokenLifetime
 	}
 	token, err := s.jwt.GenerateTokenWithLifetime(user.ID, lifetime)
 	if err != nil {
@@ -141,11 +157,11 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI, lan
 		userCurrency = existing.Currency
 	}
 
-	token, err := s.jwt.GenerateToken(userID)
+	token, err := s.jwt.GenerateTokenWithLifetime(userID, defaultTokenLifetime)
 	if err != nil {
 		return GoogleExchangeResult{}, fmt.Errorf("auth: generate token: %w", err)
 	}
-	return GoogleExchangeResult{AccessToken: token, ExpiresIn: s.jwt.LifetimeSeconds(), IsNewUser: isNew, Language: userLang, Currency: userCurrency}, nil
+	return GoogleExchangeResult{AccessToken: token, ExpiresIn: int64(defaultTokenLifetime.Seconds()), IsNewUser: isNew, Language: userLang, Currency: userCurrency}, nil
 }
 
 func (s *AuthService) GoogleAuthURL(state string) string {
@@ -209,11 +225,11 @@ func (s *AuthService) Register(ctx context.Context, email, password, firstName, 
 		return RegisterResult{}, fmt.Errorf("auth: create user: %w", err)
 	}
 
-	token, err := s.jwt.GenerateToken(user.ID)
+	token, err := s.jwt.GenerateTokenWithLifetime(user.ID, defaultTokenLifetime)
 	if err != nil {
 		return RegisterResult{}, fmt.Errorf("auth: generate token: %w", err)
 	}
-	return RegisterResult{AccessToken: token, ExpiresIn: s.jwt.LifetimeSeconds()}, nil
+	return RegisterResult{AccessToken: token, ExpiresIn: int64(defaultTokenLifetime.Seconds())}, nil
 }
 
 func validatePassword(password string) error {

@@ -14,19 +14,11 @@ type Claims struct {
 }
 
 type JWTService struct {
-	secret   []byte
-	lifetime time.Duration
+	secret []byte
 }
 
-func NewJWTService(secret string, lifetimeSeconds int) *JWTService {
-	return &JWTService{
-		secret:   []byte(secret),
-		lifetime: time.Duration(lifetimeSeconds) * time.Second,
-	}
-}
-
-func (s *JWTService) GenerateToken(userID uuid.UUID) (string, error) {
-	return s.GenerateTokenWithLifetime(userID, s.lifetime)
+func NewJWTService(secret string) *JWTService {
+	return &JWTService{secret: []byte(secret)}
 }
 
 func (s *JWTService) GenerateTokenWithLifetime(userID uuid.UUID, lifetime time.Duration) (string, error) {
@@ -60,8 +52,4 @@ func (s *JWTService) ValidateToken(tokenStr string) (string, error) {
 		return "", fmt.Errorf("jwt: invalid claims")
 	}
 	return claims.UserID, nil
-}
-
-func (s *JWTService) LifetimeSeconds() int64 {
-	return int64(s.lifetime.Seconds())
 }
