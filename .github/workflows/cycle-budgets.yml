@@ -1,0 +1,21 @@
+name: Cycle Budgets
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 6 AM UTC — after all timezones have passed midnight
+  workflow_dispatch:      # allow manual trigger for testing / catch-up runs
+
+jobs:
+  cycle:
+    name: Cycle budget periods
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run cycle-budgets
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
+        run: go run ./cmd/jobs/cycle-budgets
