@@ -10,6 +10,7 @@ RUN go mod download
 
 COPY . .
 RUN go build -ldflags="-w -s" -o /bin/server ./cmd/server
+RUN go build -ldflags="-w -s" -o /bin/cycle-budgets ./cmd/jobs/cycle-budgets
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM alpine:3.20
@@ -19,7 +20,8 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 
 COPY --from=builder /bin/server ./server
+COPY --from=builder /bin/cycle-budgets ./cycle-budgets
 
 EXPOSE 8080
 
-CMD ["./server"]
+ENTRYPOINT ["./server"]

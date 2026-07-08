@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/mauro-afa91/spendsense/internal/config"
 	"github.com/mauro-afa91/spendsense/internal/db"
 	"github.com/mauro-afa91/spendsense/internal/repository"
 	"github.com/mauro-afa91/spendsense/internal/service"
@@ -17,13 +17,13 @@ import (
 // has ended (end_date < today) and creates the next period, pre-filling recurring
 // income entries and carrying forward fixed+recurring transactions.
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("config: %v", err)
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("DATABASE_URL is required")
 	}
 
 	ctx := context.Background()
-	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
+	pool, err := db.NewPool(ctx, dbURL)
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}

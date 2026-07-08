@@ -72,7 +72,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_PROD }}
         run: go run ./cmd/migrate up
-      - name: Deploy
+      - name: Deploy API — Cloud Run Service
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE }}
@@ -85,3 +85,13 @@ jobs:
             GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
             GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
             GOOGLE_REDIRECT_URI=GOOGLE_REDIRECT_URI:latest
+
+      - name: Deploy cycle-budgets — Cloud Run Job
+        run: |
+          gcloud run jobs deploy cycle-budgets \
+            --image=${{ env.IMAGE }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --command=./cycle-budgets \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+            --max-retries=1 \
+            --project=${{ secrets.GCP_PROJECT_ID }}
