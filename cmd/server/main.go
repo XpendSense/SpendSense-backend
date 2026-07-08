@@ -47,22 +47,22 @@ func main() {
 	queries := sqlcdb.New(pool)
 
 	// Repositories
-	userRepo            := repository.NewUserRepository(queries)
-	budgetProfileRepo   := repository.NewBudgetProfileRepository(queries)
-	transactionRepo     := repository.NewTransactionRepository(queries)
-	allocationRepo      := repository.NewExpenseAllocationRepository(queries)
-	fixedExpenseRepo    := repository.NewFixedExpenseRepository(queries)
+	userRepo := repository.NewUserRepository(queries)
+	budgetProfileRepo := repository.NewBudgetProfileRepository(queries)
+	transactionRepo := repository.NewTransactionRepository(queries)
+	allocationRepo := repository.NewExpenseAllocationRepository(queries)
+	fixedExpenseRepo := repository.NewFixedExpenseRepository(queries)
 
 	// Auth
-	jwtSvc     := auth.NewJWTService(cfg.JWTSecret, cfg.JWTLifetimeSeconds)
+	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
 	googleOAuth := auth.NewGoogleOAuth(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURI)
 
 	// Services
-	authSvc        := service.NewAuthService(userRepo, jwtSvc, googleOAuth)
-	userSvc        := service.NewUserService(userRepo)
-	profileSvc     := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo)
+	authSvc := service.NewAuthService(userRepo, jwtSvc, googleOAuth)
+	userSvc := service.NewUserService(userRepo)
+	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo)
-	allocationSvc  := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
+	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
 
 	// Procedures that don't require authentication
 	bypass := map[string]bool{

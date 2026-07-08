@@ -16,16 +16,16 @@ import (
 // ── Mock ──────────────────────────────────────────────────────────────────────
 
 type mockUserRepo struct {
-	getByEmail            func(context.Context, string) (db.User, error)
-	getByID               func(context.Context, uuid.UUID) (db.User, error)
-	create                func(context.Context, db.CreateUserParams) (db.User, error)
-	update                func(context.Context, db.UpdateUserParams) (db.User, error)
-	updatePassword        func(context.Context, db.UpdateUserPasswordParams) error
-	delete                func(context.Context, uuid.UUID) error
-	getOAuth              func(context.Context, db.GetOAuthAccountParams) (db.OauthAccount, error)
-	createOAuth           func(context.Context, db.CreateOAuthAccountParams) (db.OauthAccount, error)
-	listEnabledCountries  func(context.Context) ([]db.ListEnabledCountriesRow, error)
-	listCountryFeatures   func(context.Context) ([]db.CountryFeature, error)
+	getByEmail           func(context.Context, string) (db.User, error)
+	getByID              func(context.Context, uuid.UUID) (db.User, error)
+	create               func(context.Context, db.CreateUserParams) (db.User, error)
+	update               func(context.Context, db.UpdateUserParams) (db.User, error)
+	updatePassword       func(context.Context, db.UpdateUserPasswordParams) error
+	delete               func(context.Context, uuid.UUID) error
+	getOAuth             func(context.Context, db.GetOAuthAccountParams) (db.OauthAccount, error)
+	createOAuth          func(context.Context, db.CreateOAuthAccountParams) (db.OauthAccount, error)
+	listEnabledCountries func(context.Context) ([]db.ListEnabledCountriesRow, error)
+	listCountryFeatures  func(context.Context) ([]db.CountryFeature, error)
 }
 
 func (m *mockUserRepo) GetByEmail(ctx context.Context, email string) (db.User, error) {
@@ -101,7 +101,7 @@ func (m *mockUserRepo) ListCountryFeatures(ctx context.Context) ([]db.CountryFea
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func testJWT() *auth.JWTService {
-	return auth.NewJWTService("test-secret-32-chars-minimum-ok!", 3600)
+	return auth.NewJWTService("test-secret-32-chars-minimum-ok!")
 }
 
 func newAuthSvc(repo *mockUserRepo) *AuthService {
@@ -122,7 +122,7 @@ func TestRegister_Success(t *testing.T) {
 	result, err := newAuthSvc(repo).Register(context.Background(), "new@example.com", "Strong@1", "Jane", "Doe", "", "", "", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.AccessToken)
-	assert.Equal(t, int64(3600), result.ExpiresIn)
+	assert.Equal(t, int64(24*3600), result.ExpiresIn)
 }
 
 func TestRegister_EmailNormalized(t *testing.T) {
