@@ -20,6 +20,7 @@ func bigInt(n int64) *big.Int { return big.NewInt(n) }
 
 type mockBudgetProfileRepo struct {
 	listByUserID                 func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
+	listByUserOrMember           func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
 	getByID                      func(context.Context, uuid.UUID) (db.BudgetProfile, error)
 	existsByNameAndUser          func(context.Context, string, uuid.UUID) (bool, error)
 	create                       func(context.Context, db.CreateBudgetProfileParams) (db.BudgetProfile, error)
@@ -32,9 +33,13 @@ type mockBudgetProfileRepo struct {
 	listProfileIDsWithExpired    func(context.Context, pgtype.Date) ([]uuid.UUID, error)
 	listPeople                   func(context.Context, uuid.UUID) ([]db.BudgetToProfileMapping, error)
 	getPerson                    func(context.Context, int32, uuid.UUID) (db.BudgetToProfileMapping, error)
+	getPersonByUserID            func(context.Context, uuid.UUID, uuid.UUID) (db.BudgetToProfileMapping, error)
 	existsPerson                 func(context.Context, uuid.UUID, string) (bool, error)
+	existsPersonForUser          func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
 	addPerson                    func(context.Context, db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
 	updatePerson                 func(context.Context, db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
+	updatePersonRole             func(context.Context, db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error)
+	linkPersonToUser             func(context.Context, db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error)
 	softRemovePerson             func(context.Context, db.SoftRemovePersonFromProfileParams) error
 	softRemovePersonAndReassign  func(context.Context, db.SoftRemovePersonAndReassignFromProfileParams) error
 	listIncomeSources            func(context.Context, uuid.UUID) ([]db.IncomeSource, error)
@@ -56,6 +61,12 @@ type mockBudgetProfileRepo struct {
 func (m *mockBudgetProfileRepo) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
 	if m.listByUserID != nil {
 		return m.listByUserID(ctx, userID)
+	}
+	return nil, nil
+}
+func (m *mockBudgetProfileRepo) ListByUserOrMember(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
+	if m.listByUserOrMember != nil {
+		return m.listByUserOrMember(ctx, userID)
 	}
 	return nil, nil
 }
@@ -137,6 +148,18 @@ func (m *mockBudgetProfileRepo) ExistsPerson(ctx context.Context, profileID uuid
 	}
 	return false, nil
 }
+func (m *mockBudgetProfileRepo) ExistsPersonForUser(ctx context.Context, profileID, userID uuid.UUID) (bool, error) {
+	if m.existsPersonForUser != nil {
+		return m.existsPersonForUser(ctx, profileID, userID)
+	}
+	return false, nil
+}
+func (m *mockBudgetProfileRepo) GetPersonByUserID(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
+	if m.getPersonByUserID != nil {
+		return m.getPersonByUserID(ctx, profileID, userID)
+	}
+	return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", userID.String())
+}
 func (m *mockBudgetProfileRepo) AddPerson(ctx context.Context, arg db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error) {
 	if m.addPerson != nil {
 		return m.addPerson(ctx, arg)
@@ -148,6 +171,18 @@ func (m *mockBudgetProfileRepo) UpdatePerson(ctx context.Context, arg db.UpdateB
 		return m.updatePerson(ctx, arg)
 	}
 	return db.BudgetToProfileMapping{Color: arg.Color}, nil
+}
+func (m *mockBudgetProfileRepo) UpdatePersonRole(ctx context.Context, arg db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error) {
+	if m.updatePersonRole != nil {
+		return m.updatePersonRole(ctx, arg)
+	}
+	return db.BudgetToProfileMapping{ID: arg.ID, Role: arg.Role}, nil
+}
+func (m *mockBudgetProfileRepo) LinkPersonToUser(ctx context.Context, arg db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error) {
+	if m.linkPersonToUser != nil {
+		return m.linkPersonToUser(ctx, arg)
+	}
+	return db.BudgetToProfileMapping{ID: arg.ID, UserID: &arg.UserID, Role: arg.Role}, nil
 }
 func (m *mockBudgetProfileRepo) SoftRemovePerson(ctx context.Context, arg db.SoftRemovePersonFromProfileParams) error {
 	if m.softRemovePerson != nil {

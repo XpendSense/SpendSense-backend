@@ -52,6 +52,7 @@ func main() {
 	transactionRepo := repository.NewTransactionRepository(queries)
 	allocationRepo := repository.NewExpenseAllocationRepository(queries)
 	fixedExpenseRepo := repository.NewFixedExpenseRepository(queries)
+	inviteRepo := repository.NewInviteRepository(queries)
 
 	// Auth
 	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
@@ -63,6 +64,7 @@ func main() {
 	profileSvc := service.NewBudgetProfileService(budgetProfileRepo, transactionRepo, fixedExpenseRepo, userRepo)
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
+	inviteSvc := service.NewInviteService(inviteRepo, budgetProfileRepo, userRepo, cfg)
 
 	// Procedures that don't require authentication
 	bypass := map[string]bool{
@@ -71,6 +73,7 @@ func main() {
 		spendsensev1connect.AuthServiceGetGoogleAuthURLProcedure:   true,
 		spendsensev1connect.AuthServiceExchangeGoogleCodeProcedure: true,
 		spendsensev1connect.UserServiceListCountriesProcedure:      true,
+		spendsensev1connect.InviteServiceGetBudgetInviteProcedure:  true,
 	}
 
 	interceptors := connect.WithInterceptors(
@@ -82,6 +85,7 @@ func main() {
 	mux.Handle(spendsensev1connect.NewAuthServiceHandler(handler.NewAuthHandler(authSvc), interceptors))
 	mux.Handle(spendsensev1connect.NewUserServiceHandler(handler.NewUserHandler(userSvc), interceptors))
 	mux.Handle(spendsensev1connect.NewBudgetServiceHandler(handler.NewBudgetHandler(profileSvc, transactionSvc, allocationSvc), interceptors))
+	mux.Handle(spendsensev1connect.NewInviteServiceHandler(handler.NewInviteHandler(inviteSvc), interceptors))
 
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins:   cfg.CORSAllowedOrigins,

@@ -15,6 +15,7 @@ import (
 type BudgetProfileRepository interface {
 	// Profile
 	ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error)
+	ListByUserOrMember(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error)
 	GetByID(ctx context.Context, id uuid.UUID) (db.BudgetProfile, error)
 	ExistsByNameAndUser(ctx context.Context, name string, userID uuid.UUID) (bool, error)
 	Create(ctx context.Context, arg db.CreateBudgetProfileParams) (db.BudgetProfile, error)
@@ -31,9 +32,13 @@ type BudgetProfileRepository interface {
 	// People
 	ListPeople(ctx context.Context, profileID uuid.UUID) ([]db.BudgetToProfileMapping, error)
 	GetPerson(ctx context.Context, personID int32, profileID uuid.UUID) (db.BudgetToProfileMapping, error)
+	GetPersonByUserID(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetToProfileMapping, error)
 	ExistsPerson(ctx context.Context, profileID uuid.UUID, userName string) (bool, error)
+	ExistsPersonForUser(ctx context.Context, profileID, userID uuid.UUID) (bool, error)
 	AddPerson(ctx context.Context, arg db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
 	UpdatePerson(ctx context.Context, arg db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
+	UpdatePersonRole(ctx context.Context, arg db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error)
+	LinkPersonToUser(ctx context.Context, arg db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error)
 	SoftRemovePerson(ctx context.Context, arg db.SoftRemovePersonFromProfileParams) error
 	SoftRemovePersonAndReassign(ctx context.Context, arg db.SoftRemovePersonAndReassignFromProfileParams) error
 
@@ -70,6 +75,10 @@ func NewBudgetProfileRepository(q *db.Queries) BudgetProfileRepository {
 
 func (r *budgetProfileRepository) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
 	return r.q.ListBudgetProfilesByUser(ctx, userID)
+}
+
+func (r *budgetProfileRepository) ListByUserOrMember(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
+	return r.q.ListBudgetProfilesByUserOrMember(ctx, &userID)
 }
 
 func (r *budgetProfileRepository) GetByID(ctx context.Context, id uuid.UUID) (db.BudgetProfile, error) {
@@ -151,12 +160,46 @@ func (r *budgetProfileRepository) ExistsPerson(ctx context.Context, profileID uu
 	})
 }
 
+func (r *budgetProfileRepository) ExistsPersonForUser(ctx context.Context, profileID, userID uuid.UUID) (bool, error) {
+	return r.q.ExistsBudgetPersonForUser(ctx, db.ExistsBudgetPersonForUserParams{
+		Column1: profileID,
+		Column2: userID,
+	})
+}
+
+func (r *budgetProfileRepository) GetPersonByUserID(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
+	m, err := r.q.GetBudgetPersonByUserID(ctx, db.GetBudgetPersonByUserIDParams{
+		BudgetProfileID: profileID,
+		UserID:          &userID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", userID.String())
+	}
+	return m, err
+}
+
 func (r *budgetProfileRepository) AddPerson(ctx context.Context, arg db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error) {
 	return r.q.AddBudgetPersonToProfile(ctx, arg)
 }
 
 func (r *budgetProfileRepository) UpdatePerson(ctx context.Context, arg db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error) {
 	m, err := r.q.UpdateBudgetPerson(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", fmt.Sprintf("%d", arg.ID))
+	}
+	return m, err
+}
+
+func (r *budgetProfileRepository) UpdatePersonRole(ctx context.Context, arg db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error) {
+	m, err := r.q.UpdateBudgetPersonRole(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", fmt.Sprintf("%d", arg.ID))
+	}
+	return m, err
+}
+
+func (r *budgetProfileRepository) LinkPersonToUser(ctx context.Context, arg db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error) {
+	m, err := r.q.LinkBudgetPersonToUser(ctx, arg)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", fmt.Sprintf("%d", arg.ID))
 	}
