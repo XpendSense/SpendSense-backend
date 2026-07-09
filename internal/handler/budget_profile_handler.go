@@ -213,6 +213,26 @@ func (h *BudgetHandler) UpdateBudgetPerson(ctx context.Context, req *connect.Req
 	return connect.NewResponse(&v1.UpdateBudgetPersonResponse{Person: toProtoBudgetPerson(m)}), nil
 }
 
+func (h *BudgetHandler) UpdateBudgetPersonRole(ctx context.Context, req *connect.Request[v1.UpdateBudgetPersonRoleRequest]) (*connect.Response[v1.UpdateBudgetPersonRoleResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	role := budgetRoleToString(req.Msg.Role)
+	if role == "unspecified" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, nil)
+	}
+	m, svcErr := h.profiles.UpdatePersonRole(ctx, profileID, int32(req.Msg.PersonId), role, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.UpdateBudgetPersonRoleResponse{Person: toProtoBudgetPerson(m)}), nil
+}
+
 func (h *BudgetHandler) RemoveBudgetPerson(ctx context.Context, req *connect.Request[v1.RemoveBudgetPersonRequest]) (*connect.Response[v1.RemoveBudgetPersonResponse], error) {
 	userID, err := h.currentUserID(ctx)
 	if err != nil {
@@ -494,6 +514,7 @@ func toProtoBudgetPerson(m db.BudgetToProfileMapping) *v1.BudgetPerson {
 		UserName:        nullStr(m.UserName),
 		UserId:          nullUUID(m.UserID),
 		Color:           m.Color,
+		Role:            stringToBudgetRole(m.Role),
 	}
 }
 

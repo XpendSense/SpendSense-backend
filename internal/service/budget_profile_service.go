@@ -33,36 +33,80 @@ func NewBudgetProfileService(
 	return &BudgetProfileService{profiles: profiles, transactions: transactions, fixedExpenses: fixedExpenses, users: users}
 }
 
-// ── Ownership ─────────────────────────────────────────────────────────────────
+// ── Access helpers ────────────────────────────────────────────────────────────
 
-func (s *BudgetProfileService) assertOwner(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetProfile, error) {
+// getUserRole returns the profile and the caller's effective role.
+// Profile owners are always admin regardless of the role column (handles legacy data and the
+// creation flow where the person row may not yet exist).
+func (s *BudgetProfileService) getUserRole(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetProfile, string, error) {
 	profile, err := s.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		return db.BudgetProfile{}, "", err
+	}
+	if profile.UserID == userID {
+		return profile, "admin", nil
+	}
+	person, err := s.profiles.GetPersonByUserID(ctx, profileID, userID)
+	if err != nil {
+		return db.BudgetProfile{}, "", apperr.Forbidden("access denied")
+	}
+	return profile, person.Role, nil
+}
+
+func (s *BudgetProfileService) assertAdmin(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetProfile, error) {
+	profile, role, err := s.getUserRole(ctx, profileID, userID)
 	if err != nil {
 		return db.BudgetProfile{}, err
 	}
-	if profile.UserID != userID {
+	if role != "admin" {
 		return db.BudgetProfile{}, apperr.Forbidden("access denied")
 	}
 	return profile, nil
 }
 
-func (s *BudgetProfileService) assertPeriodOwner(ctx context.Context, periodID, userID uuid.UUID) error {
+func (s *BudgetProfileService) assertCollaboratorOrAbove(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetProfile, error) {
+	profile, role, err := s.getUserRole(ctx, profileID, userID)
+	if err != nil {
+		return db.BudgetProfile{}, err
+	}
+	if role != "admin" && role != "collaborator" {
+		return db.BudgetProfile{}, apperr.Forbidden("access denied")
+	}
+	return profile, nil
+}
+
+func (s *BudgetProfileService) assertMember(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetProfile, error) {
+	profile, _, err := s.getUserRole(ctx, profileID, userID)
+	if err != nil {
+		return db.BudgetProfile{}, err
+	}
+	return profile, nil
+}
+
+func (s *BudgetProfileService) assertPeriodMember(ctx context.Context, periodID, userID uuid.UUID) (db.BudgetProfile, error) {
 	period, err := s.profiles.GetPeriodByID(ctx, periodID)
 	if err != nil {
-		return err
+		return db.BudgetProfile{}, err
 	}
-	_, err = s.assertOwner(ctx, period.BudgetProfileID, userID)
-	return err
+	return s.assertMember(ctx, period.BudgetProfileID, userID)
+}
+
+func (s *BudgetProfileService) assertPeriodCollaborator(ctx context.Context, periodID, userID uuid.UUID) (db.BudgetProfile, error) {
+	period, err := s.profiles.GetPeriodByID(ctx, periodID)
+	if err != nil {
+		return db.BudgetProfile{}, err
+	}
+	return s.assertCollaboratorOrAbove(ctx, period.BudgetProfileID, userID)
 }
 
 // ── Profile CRUD ──────────────────────────────────────────────────────────────
 
 func (s *BudgetProfileService) List(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
-	return s.profiles.ListByUserID(ctx, userID)
+	return s.profiles.ListByUserOrMember(ctx, userID)
 }
 
 func (s *BudgetProfileService) Get(ctx context.Context, id, userID uuid.UUID) (db.BudgetProfile, error) {
-	return s.assertOwner(ctx, id, userID)
+	return s.assertMember(ctx, id, userID)
 }
 
 func (s *BudgetProfileService) Create(ctx context.Context, userID uuid.UUID, name, cycle string) (db.BudgetProfile, db.BudgetPeriod, error) {
@@ -107,6 +151,7 @@ func (s *BudgetProfileService) Create(ctx context.Context, userID uuid.UUID, nam
 			UserName:        &displayName,
 			UserID:          &userID,
 			Color:           "",
+			Role:            "admin",
 		})
 	}
 
@@ -120,14 +165,14 @@ func (s *BudgetProfileService) Create(ctx context.Context, userID uuid.UUID, nam
 }
 
 func (s *BudgetProfileService) Update(ctx context.Context, id, userID uuid.UUID, name, cycle string) (db.BudgetProfile, error) {
-	if _, err := s.assertOwner(ctx, id, userID); err != nil {
+	if _, err := s.assertAdmin(ctx, id, userID); err != nil {
 		return db.BudgetProfile{}, err
 	}
 	return s.profiles.Update(ctx, db.UpdateBudgetProfileParams{ID: id, Name: name, Cycle: cycle})
 }
 
 func (s *BudgetProfileService) Delete(ctx context.Context, id, userID uuid.UUID) error {
-	if _, err := s.assertOwner(ctx, id, userID); err != nil {
+	if _, err := s.assertAdmin(ctx, id, userID); err != nil {
 		return err
 	}
 	return s.profiles.Delete(ctx, id)
@@ -140,7 +185,7 @@ func (s *BudgetProfileService) Delete(ctx context.Context, id, userID uuid.UUID)
 // Recurring income sources are pre-filled as entries; fixed+recurring transactions
 // are carried forward from the previous period.
 func (s *BudgetProfileService) CreateBudgetPeriod(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetPeriod, error) {
-	profile, err := s.assertOwner(ctx, profileID, userID)
+	profile, err := s.assertAdmin(ctx, profileID, userID)
 	if err != nil {
 		return db.BudgetPeriod{}, err
 	}
@@ -235,7 +280,7 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 }
 
 func (s *BudgetProfileService) ListBudgetPeriods(ctx context.Context, profileID, userID uuid.UUID) ([]db.BudgetPeriod, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertMember(ctx, profileID, userID); err != nil {
 		return nil, err
 	}
 	return s.profiles.ListPeriods(ctx, profileID)
@@ -246,7 +291,7 @@ func (s *BudgetProfileService) GetBudgetPeriod(ctx context.Context, periodID, us
 	if err != nil {
 		return db.BudgetPeriod{}, err
 	}
-	if _, err := s.assertOwner(ctx, period.BudgetProfileID, userID); err != nil {
+	if _, err := s.assertMember(ctx, period.BudgetProfileID, userID); err != nil {
 		return db.BudgetPeriod{}, err
 	}
 	return period, nil
@@ -261,7 +306,7 @@ type ProfilePersonInput struct {
 }
 
 func (s *BudgetProfileService) AddPeople(ctx context.Context, profileID, userID uuid.UUID, people []ProfilePersonInput) ([]db.BudgetToProfileMapping, error) {
-	profile, err := s.assertOwner(ctx, profileID, userID)
+	profile, err := s.assertAdmin(ctx, profileID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -283,11 +328,16 @@ func (s *BudgetProfileService) AddPeople(ctx context.Context, profileID, userID 
 		if exists {
 			return nil, apperr.Duplicate("person", "name", p.UserName)
 		}
+		role := "unspecified"
+		if p.UserID != nil {
+			role = "collaborator"
+		}
 		m, err := s.profiles.AddPerson(ctx, db.AddBudgetPersonToProfileParams{
 			BudgetProfileID: profileID,
 			UserName:        &p.UserName,
 			UserID:          p.UserID,
 			Color:           p.Color,
+			Role:            role,
 		})
 		if err != nil {
 			return nil, err
@@ -298,7 +348,7 @@ func (s *BudgetProfileService) AddPeople(ctx context.Context, profileID, userID 
 }
 
 func (s *BudgetProfileService) UpdatePerson(ctx context.Context, profileID uuid.UUID, personID int32, color string, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertAdmin(ctx, profileID, userID); err != nil {
 		return db.BudgetToProfileMapping{}, err
 	}
 	return s.profiles.UpdatePerson(ctx, db.UpdateBudgetPersonParams{
@@ -308,15 +358,26 @@ func (s *BudgetProfileService) UpdatePerson(ctx context.Context, profileID uuid.
 	})
 }
 
+func (s *BudgetProfileService) UpdatePersonRole(ctx context.Context, profileID uuid.UUID, personID int32, role string, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
+	if _, err := s.assertAdmin(ctx, profileID, userID); err != nil {
+		return db.BudgetToProfileMapping{}, err
+	}
+	return s.profiles.UpdatePersonRole(ctx, db.UpdateBudgetPersonRoleParams{
+		ID:              personID,
+		BudgetProfileID: profileID,
+		Role:            role,
+	})
+}
+
 func (s *BudgetProfileService) ListPeople(ctx context.Context, profileID, userID uuid.UUID) ([]db.BudgetToProfileMapping, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertMember(ctx, profileID, userID); err != nil {
 		return nil, err
 	}
 	return s.profiles.ListPeople(ctx, profileID)
 }
 
 func (s *BudgetProfileService) RemovePerson(ctx context.Context, profileID uuid.UUID, personID int32, replacementPersonID int32, replacementPMID uuid.UUID, userID uuid.UUID) error {
-	profile, err := s.assertOwner(ctx, profileID, userID)
+	profile, err := s.assertAdmin(ctx, profileID, userID)
 	if err != nil {
 		return err
 	}
@@ -359,7 +420,7 @@ type IncomeSourceInput struct {
 }
 
 func (s *BudgetProfileService) AddIncomeSource(ctx context.Context, profileID, userID uuid.UUID, inp IncomeSourceInput) (db.IncomeSource, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return db.IncomeSource{}, err
 	}
 	src, err := s.profiles.AddIncomeSource(ctx, db.AddIncomeSourceParams{
@@ -380,14 +441,14 @@ func (s *BudgetProfileService) AddIncomeSource(ctx context.Context, profileID, u
 }
 
 func (s *BudgetProfileService) ListIncomeSources(ctx context.Context, profileID, userID uuid.UUID) ([]db.IncomeSource, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertMember(ctx, profileID, userID); err != nil {
 		return nil, err
 	}
 	return s.profiles.ListIncomeSources(ctx, profileID)
 }
 
 func (s *BudgetProfileService) UpdateIncomeSource(ctx context.Context, id int32, profileID, userID uuid.UUID, inp IncomeSourceInput) (db.IncomeSource, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return db.IncomeSource{}, err
 	}
 	src, err := s.profiles.UpdateIncomeSource(ctx, db.UpdateIncomeSourceParams{
@@ -409,7 +470,7 @@ func (s *BudgetProfileService) UpdateIncomeSource(ctx context.Context, id int32,
 }
 
 func (s *BudgetProfileService) DeleteIncomeSource(ctx context.Context, id int32, profileID, userID uuid.UUID) error {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return err
 	}
 	if err := s.profiles.DeleteIncomeSource(ctx, db.DeleteIncomeSourceParams{
@@ -544,14 +605,14 @@ func (s *BudgetProfileService) recalculateTaxReserve(ctx context.Context, profil
 // ── Income Entries ────────────────────────────────────────────────────────────
 
 func (s *BudgetProfileService) ListIncomeEntries(ctx context.Context, periodID, userID uuid.UUID) ([]db.IncomeEntry, error) {
-	if err := s.assertPeriodOwner(ctx, periodID, userID); err != nil {
+	if _, err := s.assertPeriodMember(ctx, periodID, userID); err != nil {
 		return nil, err
 	}
 	return s.profiles.ListIncomeEntries(ctx, periodID)
 }
 
 func (s *BudgetProfileService) UpdateIncomeEntry(ctx context.Context, id int32, periodID uuid.UUID, amount pgtype.Numeric, userID uuid.UUID) (db.IncomeEntry, error) {
-	if err := s.assertPeriodOwner(ctx, periodID, userID); err != nil {
+	if _, err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
 		return db.IncomeEntry{}, err
 	}
 	return s.profiles.UpdateIncomeEntry(ctx, db.UpdateIncomeEntryParams{
@@ -582,7 +643,7 @@ func paymentDaysFrequency(n int) string {
 }
 
 func (s *BudgetProfileService) AddSavingsSource(ctx context.Context, profileID, userID uuid.UUID, inp SavingsSourceInput) (db.SavingsSource, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return db.SavingsSource{}, err
 	}
 	n := len(inp.PaymentDays)
@@ -680,14 +741,14 @@ func (s *BudgetProfileService) createSavingsTransactions(ctx context.Context, pr
 }
 
 func (s *BudgetProfileService) ListSavingsSources(ctx context.Context, profileID, userID uuid.UUID) ([]db.SavingsSource, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertMember(ctx, profileID, userID); err != nil {
 		return nil, err
 	}
 	return s.profiles.ListSavingsSources(ctx, profileID)
 }
 
 func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32, profileID, userID uuid.UUID, inp SavingsSourceInput) (db.SavingsSource, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return db.SavingsSource{}, err
 	}
 	n := len(inp.PaymentDays)
@@ -754,7 +815,7 @@ func (s *BudgetProfileService) UpdateSavingsSource(ctx context.Context, id int32
 }
 
 func (s *BudgetProfileService) DeleteSavingsSource(ctx context.Context, id int32, profileID, userID uuid.UUID) error {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return err
 	}
 	src, err := s.profiles.GetSavingsSource(ctx, db.GetSavingsSourceParams{ID: id, BudgetProfileID: profileID})
@@ -800,7 +861,7 @@ type FixedExpenseInput struct {
 }
 
 func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID, userID uuid.UUID, inp FixedExpenseInput) (db.FixedExpense, *db.Transaction, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return db.FixedExpense{}, nil, err
 	}
 	day := inp.DayOfMonth
@@ -855,14 +916,14 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 }
 
 func (s *BudgetProfileService) ListFixedExpenses(ctx context.Context, profileID, userID uuid.UUID) ([]db.FixedExpense, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertMember(ctx, profileID, userID); err != nil {
 		return nil, err
 	}
 	return s.fixedExpenses.List(ctx, profileID)
 }
 
 func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.UUID, profileID, userID uuid.UUID, inp FixedExpenseInput) (db.FixedExpense, error) {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return db.FixedExpense{}, err
 	}
 	day := inp.DayOfMonth
@@ -912,7 +973,7 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 }
 
 func (s *BudgetProfileService) DeleteFixedExpense(ctx context.Context, id uuid.UUID, profileID, userID uuid.UUID) error {
-	if _, err := s.assertOwner(ctx, profileID, userID); err != nil {
+	if _, err := s.assertCollaboratorOrAbove(ctx, profileID, userID); err != nil {
 		return err
 	}
 	// Verify ownership: the expense must belong to this profile.

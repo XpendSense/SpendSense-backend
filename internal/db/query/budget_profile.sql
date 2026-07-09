@@ -11,6 +11,16 @@ FROM budget_profile
 WHERE user_id = $1
 ORDER BY created_at DESC;
 
+-- name: ListBudgetProfilesByUserOrMember :many
+SELECT DISTINCT bp.id, bp.user_id, bp.name, bp.cycle, bp.created_at, bp.country_code
+FROM budget_profile bp
+LEFT JOIN budget_to_profile_mapping btpm
+    ON btpm.budget_profile_id = bp.id
+    AND btpm.user_id = $1
+    AND btpm.is_active = TRUE
+WHERE bp.user_id = $1 OR btpm.id IS NOT NULL
+ORDER BY bp.created_at DESC;
+
 -- name: GetBudgetProfileByID :one
 SELECT id, user_id, name, cycle, created_at, country_code
 FROM budget_profile
@@ -71,32 +81,56 @@ WHERE bp.end_date = $1::date
 -- ── People ────────────────────────────────────────────────────────────────────
 
 -- name: AddBudgetPersonToProfile :one
-INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id, color)
-VALUES ($1, $2, $3, $4)
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color;
+INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id, color, role)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role;
 
 -- name: ListBudgetPeopleByProfile :many
-SELECT id, budget_profile_id, user_name, user_id, is_active, color
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY id;
 
 -- name: GetBudgetPersonByProfileID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
 FROM budget_to_profile_mapping
 WHERE id = $1 AND budget_profile_id = $2
+LIMIT 1;
+
+-- name: GetBudgetPersonByUserID :one
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+FROM budget_to_profile_mapping
+WHERE budget_profile_id = $1 AND user_id = $2 AND is_active = TRUE
 LIMIT 1;
 
 -- name: UpdateBudgetPerson :one
 UPDATE budget_to_profile_mapping
 SET color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color;
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role;
+
+-- name: UpdateBudgetPersonRole :one
+UPDATE budget_to_profile_mapping
+SET role = sqlc.arg('role')
+WHERE id = sqlc.arg('id') AND budget_profile_id = sqlc.arg('budget_profile_id')::uuid AND is_active = TRUE
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role;
+
+-- name: LinkBudgetPersonToUser :one
+UPDATE budget_to_profile_mapping
+SET user_id = sqlc.arg('user_id')::uuid, role = sqlc.arg('role')
+WHERE id = sqlc.arg('id') AND is_active = TRUE
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role;
 
 -- name: ExistsBudgetPersonInProfile :one
 SELECT EXISTS (
     SELECT 1 FROM budget_to_profile_mapping
     WHERE budget_profile_id = $1::uuid AND user_name = $2 AND is_active = TRUE
+) AS exists;
+
+-- name: ExistsBudgetPersonForUser :one
+SELECT EXISTS (
+    SELECT 1 FROM budget_to_profile_mapping
+    WHERE budget_profile_id = $1::uuid AND user_id = $2::uuid AND is_active = TRUE
 ) AS exists;
 
 -- name: SoftRemovePersonFromProfile :exec

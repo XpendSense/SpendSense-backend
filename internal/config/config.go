@@ -18,6 +18,9 @@ type Config struct {
 	Debug              bool     `envconfig:"DEBUG" default:"false"`
 	Env                string   `envconfig:"ENV" default:"dev"`
 	ServerPort         string   `envconfig:"PORT" default:"8080"`
+	ResendAPIKey       string   `envconfig:"RESEND_API_KEY"`
+	ResendFromEmail    string   `envconfig:"RESEND_FROM_EMAIL" default:"SpendSense <noreply@spendsense.app>"`
+	FrontendURL        string   `envconfig:"FRONTEND_URL" default:"http://localhost:3000"`
 }
 
 func Load() (*Config, error) {

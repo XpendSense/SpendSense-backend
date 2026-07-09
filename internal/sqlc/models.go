@@ -9,6 +9,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BudgetInvite struct {
+	ID              uuid.UUID          `json:"id"`
+	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
+	Email           string             `json:"email"`
+	Role            string             `json:"role"`
+	Token           uuid.UUID          `json:"token"`
+	Status          string             `json:"status"`
+	InvitedBy       uuid.UUID          `json:"invited_by"`
+	BudgetPersonID  *int64             `json:"budget_person_id"`
+	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type BudgetPeriod struct {
 	ID              uuid.UUID          `json:"id"`
 	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
@@ -34,6 +47,7 @@ type BudgetToProfileMapping struct {
 	UserID          *uuid.UUID `json:"user_id"`
 	IsActive        bool       `json:"is_active"`
 	Color           string     `json:"color"`
+	Role            string     `json:"role"`
 }
 
 type Category struct {

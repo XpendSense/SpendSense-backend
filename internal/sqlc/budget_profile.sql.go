@@ -14,9 +14,9 @@ import (
 
 const addBudgetPersonToProfile = `-- name: AddBudgetPersonToProfile :one
 
-INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id, color)
-VALUES ($1, $2, $3, $4)
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color
+INSERT INTO budget_to_profile_mapping (budget_profile_id, user_name, user_id, color, role)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role
 `
 
 type AddBudgetPersonToProfileParams struct {
@@ -24,6 +24,7 @@ type AddBudgetPersonToProfileParams struct {
 	UserName        *string    `json:"user_name"`
 	UserID          *uuid.UUID `json:"user_id"`
 	Color           string     `json:"color"`
+	Role            string     `json:"role"`
 }
 
 // ── People ────────────────────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ func (q *Queries) AddBudgetPersonToProfile(ctx context.Context, arg AddBudgetPer
 		arg.UserName,
 		arg.UserID,
 		arg.Color,
+		arg.Role,
 	)
 	var i BudgetToProfileMapping
 	err := row.Scan(
@@ -42,6 +44,7 @@ func (q *Queries) AddBudgetPersonToProfile(ctx context.Context, arg AddBudgetPer
 		&i.UserID,
 		&i.IsActive,
 		&i.Color,
+		&i.Role,
 	)
 	return i, err
 }
@@ -283,6 +286,25 @@ func (q *Queries) DeleteTaxReserveSavingsSource(ctx context.Context, budgetProfi
 	return err
 }
 
+const existsBudgetPersonForUser = `-- name: ExistsBudgetPersonForUser :one
+SELECT EXISTS (
+    SELECT 1 FROM budget_to_profile_mapping
+    WHERE budget_profile_id = $1::uuid AND user_id = $2::uuid AND is_active = TRUE
+) AS exists
+`
+
+type ExistsBudgetPersonForUserParams struct {
+	Column1 uuid.UUID `json:"column_1"`
+	Column2 uuid.UUID `json:"column_2"`
+}
+
+func (q *Queries) ExistsBudgetPersonForUser(ctx context.Context, arg ExistsBudgetPersonForUserParams) (bool, error) {
+	row := q.db.QueryRow(ctx, existsBudgetPersonForUser, arg.Column1, arg.Column2)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const existsBudgetPersonInProfile = `-- name: ExistsBudgetPersonInProfile :one
 SELECT EXISTS (
     SELECT 1 FROM budget_to_profile_mapping
@@ -342,7 +364,7 @@ func (q *Queries) GetBudgetPeriodByID(ctx context.Context, id uuid.UUID) (Budget
 }
 
 const getBudgetPersonByProfileID = `-- name: GetBudgetPersonByProfileID :one
-SELECT id, budget_profile_id, user_name, user_id, is_active, color
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
 FROM budget_to_profile_mapping
 WHERE id = $1 AND budget_profile_id = $2
 LIMIT 1
@@ -363,6 +385,34 @@ func (q *Queries) GetBudgetPersonByProfileID(ctx context.Context, arg GetBudgetP
 		&i.UserID,
 		&i.IsActive,
 		&i.Color,
+		&i.Role,
+	)
+	return i, err
+}
+
+const getBudgetPersonByUserID = `-- name: GetBudgetPersonByUserID :one
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+FROM budget_to_profile_mapping
+WHERE budget_profile_id = $1 AND user_id = $2 AND is_active = TRUE
+LIMIT 1
+`
+
+type GetBudgetPersonByUserIDParams struct {
+	BudgetProfileID uuid.UUID  `json:"budget_profile_id"`
+	UserID          *uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetBudgetPersonByUserID(ctx context.Context, arg GetBudgetPersonByUserIDParams) (BudgetToProfileMapping, error) {
+	row := q.db.QueryRow(ctx, getBudgetPersonByUserID, arg.BudgetProfileID, arg.UserID)
+	var i BudgetToProfileMapping
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetProfileID,
+		&i.UserName,
+		&i.UserID,
+		&i.IsActive,
+		&i.Color,
+		&i.Role,
 	)
 	return i, err
 }
@@ -442,8 +492,36 @@ func (q *Queries) GetSavingsSource(ctx context.Context, arg GetSavingsSourcePara
 	return i, err
 }
 
+const linkBudgetPersonToUser = `-- name: LinkBudgetPersonToUser :one
+UPDATE budget_to_profile_mapping
+SET user_id = $1::uuid, role = $2
+WHERE id = $3 AND is_active = TRUE
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role
+`
+
+type LinkBudgetPersonToUserParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Role   string    `json:"role"`
+	ID     int32     `json:"id"`
+}
+
+func (q *Queries) LinkBudgetPersonToUser(ctx context.Context, arg LinkBudgetPersonToUserParams) (BudgetToProfileMapping, error) {
+	row := q.db.QueryRow(ctx, linkBudgetPersonToUser, arg.UserID, arg.Role, arg.ID)
+	var i BudgetToProfileMapping
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetProfileID,
+		&i.UserName,
+		&i.UserID,
+		&i.IsActive,
+		&i.Color,
+		&i.Role,
+	)
+	return i, err
+}
+
 const listBudgetPeopleByProfile = `-- name: ListBudgetPeopleByProfile :many
-SELECT id, budget_profile_id, user_name, user_id, is_active, color
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
 FROM budget_to_profile_mapping
 WHERE budget_profile_id = $1 AND is_active = TRUE
 ORDER BY id
@@ -465,6 +543,7 @@ func (q *Queries) ListBudgetPeopleByProfile(ctx context.Context, budgetProfileID
 			&i.UserID,
 			&i.IsActive,
 			&i.Color,
+			&i.Role,
 		); err != nil {
 			return nil, err
 		}
@@ -519,6 +598,44 @@ ORDER BY created_at DESC
 
 func (q *Queries) ListBudgetProfilesByUser(ctx context.Context, userID uuid.UUID) ([]BudgetProfile, error) {
 	rows, err := q.db.Query(ctx, listBudgetProfilesByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BudgetProfile
+	for rows.Next() {
+		var i BudgetProfile
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.Cycle,
+			&i.CreatedAt,
+			&i.CountryCode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBudgetProfilesByUserOrMember = `-- name: ListBudgetProfilesByUserOrMember :many
+SELECT DISTINCT bp.id, bp.user_id, bp.name, bp.cycle, bp.created_at, bp.country_code
+FROM budget_profile bp
+LEFT JOIN budget_to_profile_mapping btpm
+    ON btpm.budget_profile_id = bp.id
+    AND btpm.user_id = $1
+    AND btpm.is_active = TRUE
+WHERE bp.user_id = $1 OR btpm.id IS NOT NULL
+ORDER BY bp.created_at DESC
+`
+
+func (q *Queries) ListBudgetProfilesByUserOrMember(ctx context.Context, userID *uuid.UUID) ([]BudgetProfile, error) {
+	rows, err := q.db.Query(ctx, listBudgetProfilesByUserOrMember, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -762,7 +879,7 @@ const updateBudgetPerson = `-- name: UpdateBudgetPerson :one
 UPDATE budget_to_profile_mapping
 SET color = $1
 WHERE id = $2 AND budget_profile_id = $3::uuid AND is_active = TRUE
-RETURNING id, budget_profile_id, user_name, user_id, is_active, color
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role
 `
 
 type UpdateBudgetPersonParams struct {
@@ -781,6 +898,35 @@ func (q *Queries) UpdateBudgetPerson(ctx context.Context, arg UpdateBudgetPerson
 		&i.UserID,
 		&i.IsActive,
 		&i.Color,
+		&i.Role,
+	)
+	return i, err
+}
+
+const updateBudgetPersonRole = `-- name: UpdateBudgetPersonRole :one
+UPDATE budget_to_profile_mapping
+SET role = $1
+WHERE id = $2 AND budget_profile_id = $3::uuid AND is_active = TRUE
+RETURNING id, budget_profile_id, user_name, user_id, is_active, color, role
+`
+
+type UpdateBudgetPersonRoleParams struct {
+	Role            string    `json:"role"`
+	ID              int32     `json:"id"`
+	BudgetProfileID uuid.UUID `json:"budget_profile_id"`
+}
+
+func (q *Queries) UpdateBudgetPersonRole(ctx context.Context, arg UpdateBudgetPersonRoleParams) (BudgetToProfileMapping, error) {
+	row := q.db.QueryRow(ctx, updateBudgetPersonRole, arg.Role, arg.ID, arg.BudgetProfileID)
+	var i BudgetToProfileMapping
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetProfileID,
+		&i.UserName,
+		&i.UserID,
+		&i.IsActive,
+		&i.Color,
+		&i.Role,
 	)
 	return i, err
 }

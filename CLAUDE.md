@@ -71,7 +71,33 @@ bypass := map[string]bool{
 
 `main` is production. Never commit or push directly to `main`.
 
-- Branch work off `develop` (or commit straight to `develop` for small fixes)
-- Push to `origin/develop`
-- Open a PR from `develop` into `main`
-- Enable auto-merge on the PR (`mergeMethod: MERGE`) so it lands once required checks pass
+**Before starting any work:**
+
+```bash
+git checkout develop
+git pull origin develop
+```
+
+**Final steps after implementation:**
+
+```bash
+# Run checks first
+make test
+make build
+
+# Stage specific files (never git add -A)
+git add internal/... cmd/...
+
+# Commit and push
+git commit -m "feat: meaningful description of what changed"
+git push origin develop
+
+# Create PR from develop → main and immediately enable auto-merge
+gh pr create --base main --head develop --title "Short title" --body "Description"
+gh pr merge develop --auto --merge
+```
+
+- Always pull `develop` before starting — never work from a stale base
+- Commit directly to `develop`; never commit directly to `main`
+- `gh pr merge --auto` enables auto-merge — the PR lands once CI passes; no manual merge needed
+- Never merge PRs manually — always let auto-merge handle it after checks pass
