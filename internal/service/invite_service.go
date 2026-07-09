@@ -90,9 +90,11 @@ func (s *InviteService) sendEmail(budgetName string, token uuid.UUID, to string)
 	link := fmt.Sprintf("%s/en/invite/%s", strings.TrimRight(s.cfg.FrontendURL, "/"), token.String())
 	body := fmt.Sprintf(
 		`<p>You've been invited to collaborate on the <strong>%s</strong> budget in WellSpent.</p>`+
-			`<p><a href="%s">Accept invitation</a></p>`+
+			`<p><a href="%s" style="display:inline-block;padding:10px 20px;background:#1976d2;color:#fff;text-decoration:none;border-radius:4px;">Accept invitation</a></p>`+
+			`<p>If the button above doesn't work, copy and paste this link into your browser:</p>`+
+			`<p>%s</p>`+
 			`<p>This link expires in 7 days.</p>`,
-		budgetName, link,
+		budgetName, link, link,
 	)
 	_, err := client.Emails.Send(&resend.SendEmailRequest{
 		From:    s.cfg.ResendFromEmail,
