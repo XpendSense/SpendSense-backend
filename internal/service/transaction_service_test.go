@@ -698,3 +698,124 @@ func TestUnmarkTransactionAsPaid_Forbidden_WhenNotOwner(t *testing.T) {
 	var forbidden *apperr.ForbiddenError
 	require.ErrorAs(t, err, &forbidden)
 }
+
+// ── Role-based transaction access tests ──────────────────────────────────────
+
+func TestListTransactions_CollaboratorAllowed(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				return []db.Transaction{{ID: uuid.New()}}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil // caller is not owner
+			},
+			getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{Role: "collaborator"}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+	)
+
+	txs, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID)
+	require.NoError(t, err)
+	assert.Len(t, txs, 1)
+}
+
+func TestListTransactions_ViewerAllowed(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			list: func(_ context.Context, _ db.ListTransactionsParams) ([]db.Transaction, error) {
+				return []db.Transaction{}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+			},
+			getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{Role: "viewer"}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+	)
+
+	_, err := svc.List(context.Background(), db.ListTransactionsParams{BudgetPeriodID: periodID}, userID)
+	require.NoError(t, err)
+}
+
+func TestCreateTransaction_CollaboratorAllowed(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				return db.Transaction{ID: uuid.New()}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+			},
+			getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{Role: "collaborator"}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+	)
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{BudgetPeriodID: &periodID}, userID)
+	require.NoError(t, err)
+}
+
+func TestCreateTransaction_ViewerForbidden(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+			},
+			getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{Role: "viewer"}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+	)
+
+	_, err := svc.Create(context.Background(), db.CreateTransactionParams{BudgetPeriodID: &periodID}, userID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}

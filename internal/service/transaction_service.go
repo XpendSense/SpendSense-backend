@@ -21,16 +21,38 @@ func NewTransactionService(transactions repository.TransactionRepository, profil
 	return &TransactionService{transactions: transactions, profiles: profiles, allocations: allocations, fixedExpenses: fixedExpenses}
 }
 
-func (s *TransactionService) assertPeriodOwner(ctx context.Context, periodID, userID uuid.UUID) error {
+// getUserRoleForPeriod returns the caller's effective role for the budget profile
+// that owns the given period. Profile owners are always "admin".
+func (s *TransactionService) getUserRoleForPeriod(ctx context.Context, periodID, userID uuid.UUID) (string, error) {
 	period, err := s.profiles.GetPeriodByID(ctx, periodID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	profile, err := s.profiles.GetByID(ctx, period.BudgetProfileID)
 	if err != nil {
+		return "", err
+	}
+	if profile.UserID == userID {
+		return "admin", nil
+	}
+	person, err := s.profiles.GetPersonByUserID(ctx, profile.ID, userID)
+	if err != nil {
+		return "", apperr.Forbidden("access denied")
+	}
+	return person.Role, nil
+}
+
+func (s *TransactionService) assertPeriodMember(ctx context.Context, periodID, userID uuid.UUID) error {
+	_, err := s.getUserRoleForPeriod(ctx, periodID, userID)
+	return err
+}
+
+func (s *TransactionService) assertPeriodCollaborator(ctx context.Context, periodID, userID uuid.UUID) error {
+	role, err := s.getUserRoleForPeriod(ctx, periodID, userID)
+	if err != nil {
 		return err
 	}
-	if profile.UserID != userID {
+	if role != "admin" && role != "collaborator" {
 		return apperr.Forbidden("access denied")
 	}
 	return nil
@@ -41,7 +63,7 @@ func (s *TransactionService) GetByID(ctx context.Context, id uuid.UUID) (db.Tran
 }
 
 func (s *TransactionService) List(ctx context.Context, arg db.ListTransactionsParams, userID uuid.UUID) ([]db.Transaction, error) {
-	if err := s.assertPeriodOwner(ctx, arg.BudgetPeriodID, userID); err != nil {
+	if err := s.assertPeriodMember(ctx, arg.BudgetPeriodID, userID); err != nil {
 		return nil, err
 	}
 	return s.transactions.List(ctx, arg)
@@ -49,7 +71,7 @@ func (s *TransactionService) List(ctx context.Context, arg db.ListTransactionsPa
 
 func (s *TransactionService) Create(ctx context.Context, arg db.CreateTransactionParams, userID uuid.UUID) (db.Transaction, error) {
 	if arg.BudgetPeriodID != nil {
-		if err := s.assertPeriodOwner(ctx, *arg.BudgetPeriodID, userID); err != nil {
+		if err := s.assertPeriodCollaborator(ctx, *arg.BudgetPeriodID, userID); err != nil {
 			return db.Transaction{}, err
 		}
 	}
@@ -62,7 +84,7 @@ func (s *TransactionService) Update(ctx context.Context, arg db.UpdateTransactio
 		return db.Transaction{}, err
 	}
 	if tx.BudgetPeriodID != nil {
-		if err := s.assertPeriodOwner(ctx, *tx.BudgetPeriodID, userID); err != nil {
+		if err := s.assertPeriodCollaborator(ctx, *tx.BudgetPeriodID, userID); err != nil {
 			return db.Transaction{}, err
 		}
 	}
@@ -75,7 +97,7 @@ func (s *TransactionService) Delete(ctx context.Context, id, userID uuid.UUID) e
 		return err
 	}
 	if tx.BudgetPeriodID != nil {
-		if err := s.assertPeriodOwner(ctx, *tx.BudgetPeriodID, userID); err != nil {
+		if err := s.assertPeriodCollaborator(ctx, *tx.BudgetPeriodID, userID); err != nil {
 			return err
 		}
 	}
@@ -160,16 +182,8 @@ func (s *TransactionService) UpdatePaymentMethod(ctx context.Context, arg db.Upd
 // actual amount and date. If the paid amount differs from planned, also updates
 // the fixed expense template so future periods carry the corrected planned cost.
 func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.UUID, periodID uuid.UUID, paidAmount pgtype.Numeric, paidDate pgtype.Date, userID uuid.UUID) (db.Transaction, error) {
-	period, err := s.profiles.GetPeriodByID(ctx, periodID)
-	if err != nil {
+	if err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
 		return db.Transaction{}, err
-	}
-	profile, err := s.profiles.GetByID(ctx, period.BudgetProfileID)
-	if err != nil {
-		return db.Transaction{}, err
-	}
-	if profile.UserID != userID {
-		return db.Transaction{}, apperr.Forbidden("access denied")
 	}
 
 	tx, err := s.transactions.MarkAsPaid(ctx, db.MarkTransactionAsPaidParams{
@@ -194,16 +208,8 @@ func (s *TransactionService) MarkTransactionAsPaid(ctx context.Context, id uuid.
 }
 
 func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uuid.UUID, periodID uuid.UUID, userID uuid.UUID) (db.Transaction, error) {
-	period, err := s.profiles.GetPeriodByID(ctx, periodID)
-	if err != nil {
+	if err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
 		return db.Transaction{}, err
-	}
-	profile, err := s.profiles.GetByID(ctx, period.BudgetProfileID)
-	if err != nil {
-		return db.Transaction{}, err
-	}
-	if profile.UserID != userID {
-		return db.Transaction{}, apperr.Forbidden("access denied")
 	}
 	return s.transactions.UnmarkAsPaid(ctx, db.UnmarkTransactionAsPaidParams{
 		ID:             id,
