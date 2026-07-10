@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -19,43 +20,43 @@ func bigInt(n int64) *big.Int { return big.NewInt(n) }
 // ── Mock BudgetProfileRepository ─────────────────────────────────────────────
 
 type mockBudgetProfileRepo struct {
-	listByUserID                 func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
-	listByUserOrMember           func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
-	getByID                      func(context.Context, uuid.UUID) (db.BudgetProfile, error)
-	existsByNameAndUser          func(context.Context, string, uuid.UUID) (bool, error)
-	create                       func(context.Context, db.CreateBudgetProfileParams) (db.BudgetProfile, error)
-	update                       func(context.Context, db.UpdateBudgetProfileParams) (db.BudgetProfile, error)
-	delete                       func(context.Context, uuid.UUID) error
-	createPeriod                 func(context.Context, db.CreateBudgetPeriodParams) (db.BudgetPeriod, error)
-	getPeriodByID                func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
-	listPeriods                  func(context.Context, uuid.UUID) ([]db.BudgetPeriod, error)
-	getLatestPeriod              func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
-	listProfileIDsWithExpired    func(context.Context, pgtype.Date) ([]uuid.UUID, error)
-	listPeople                   func(context.Context, uuid.UUID) ([]db.BudgetToProfileMapping, error)
-	getPerson                    func(context.Context, int32, uuid.UUID) (db.BudgetToProfileMapping, error)
-	getPersonByUserID            func(context.Context, uuid.UUID, uuid.UUID) (db.BudgetToProfileMapping, error)
-	existsPerson                 func(context.Context, uuid.UUID, string) (bool, error)
-	existsPersonForUser          func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
-	addPerson                    func(context.Context, db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
-	updatePerson                 func(context.Context, db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
-	updatePersonRole             func(context.Context, db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error)
-	linkPersonToUser             func(context.Context, db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error)
-	softRemovePerson             func(context.Context, db.SoftRemovePersonFromProfileParams) error
-	softRemovePersonAndReassign  func(context.Context, db.SoftRemovePersonAndReassignFromProfileParams) error
-	listIncomeSources            func(context.Context, uuid.UUID) ([]db.IncomeSource, error)
-	addIncomeSource              func(context.Context, db.AddIncomeSourceParams) (db.IncomeSource, error)
-	updateIncomeSource           func(context.Context, db.UpdateIncomeSourceParams) (db.IncomeSource, error)
-	deleteIncomeSource           func(context.Context, db.DeleteIncomeSourceParams) error
-	listIncomeEntries            func(context.Context, uuid.UUID) ([]db.IncomeEntry, error)
-	createIncomeEntry            func(context.Context, db.CreateIncomeEntryParams) (db.IncomeEntry, error)
-	updateIncomeEntry            func(context.Context, db.UpdateIncomeEntryParams) (db.IncomeEntry, error)
-	getSavingsSource                   func(context.Context, db.GetSavingsSourceParams) (db.SavingsSource, error)
-	addSavingsSource                   func(context.Context, db.AddSavingsSourceParams) (db.SavingsSource, error)
-	listSavingsSources                 func(context.Context, uuid.UUID) ([]db.SavingsSource, error)
-	updateSavingsSource                func(context.Context, db.UpdateSavingsSourceParams) (db.SavingsSource, error)
-	deleteSavingsSource                func(context.Context, db.DeleteSavingsSourceParams) error
-	upsertTaxReserveSavingsSource      func(context.Context, db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error)
-	deleteTaxReserveSavingsSource      func(context.Context, uuid.UUID) error
+	listByUserID                  func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
+	listByUserOrMember            func(context.Context, uuid.UUID) ([]db.BudgetProfile, error)
+	getByID                       func(context.Context, uuid.UUID) (db.BudgetProfile, error)
+	existsByNameAndUser           func(context.Context, string, uuid.UUID) (bool, error)
+	create                        func(context.Context, db.CreateBudgetProfileParams) (db.BudgetProfile, error)
+	update                        func(context.Context, db.UpdateBudgetProfileParams) (db.BudgetProfile, error)
+	delete                        func(context.Context, uuid.UUID) error
+	createPeriod                  func(context.Context, db.CreateBudgetPeriodParams) (db.BudgetPeriod, error)
+	getPeriodByID                 func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
+	listPeriods                   func(context.Context, uuid.UUID) ([]db.BudgetPeriod, error)
+	getLatestPeriod               func(context.Context, uuid.UUID) (db.BudgetPeriod, error)
+	listProfileIDsWithExpired     func(context.Context, pgtype.Date) ([]uuid.UUID, error)
+	listPeople                    func(context.Context, uuid.UUID) ([]db.BudgetToProfileMapping, error)
+	getPerson                     func(context.Context, int32, uuid.UUID) (db.BudgetToProfileMapping, error)
+	getPersonByUserID             func(context.Context, uuid.UUID, uuid.UUID) (db.BudgetToProfileMapping, error)
+	existsPerson                  func(context.Context, uuid.UUID, string) (bool, error)
+	existsPersonForUser           func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
+	addPerson                     func(context.Context, db.AddBudgetPersonToProfileParams) (db.BudgetToProfileMapping, error)
+	updatePerson                  func(context.Context, db.UpdateBudgetPersonParams) (db.BudgetToProfileMapping, error)
+	updatePersonRole              func(context.Context, db.UpdateBudgetPersonRoleParams) (db.BudgetToProfileMapping, error)
+	linkPersonToUser              func(context.Context, db.LinkBudgetPersonToUserParams) (db.BudgetToProfileMapping, error)
+	softRemovePerson              func(context.Context, db.SoftRemovePersonFromProfileParams) error
+	softRemovePersonAndReassign   func(context.Context, db.SoftRemovePersonAndReassignFromProfileParams) error
+	listIncomeSources             func(context.Context, uuid.UUID) ([]db.IncomeSource, error)
+	addIncomeSource               func(context.Context, db.AddIncomeSourceParams) (db.IncomeSource, error)
+	updateIncomeSource            func(context.Context, db.UpdateIncomeSourceParams) (db.IncomeSource, error)
+	deleteIncomeSource            func(context.Context, db.DeleteIncomeSourceParams) error
+	listIncomeEntries             func(context.Context, uuid.UUID) ([]db.IncomeEntry, error)
+	createIncomeEntry             func(context.Context, db.CreateIncomeEntryParams) (db.IncomeEntry, error)
+	updateIncomeEntry             func(context.Context, db.UpdateIncomeEntryParams) (db.IncomeEntry, error)
+	getSavingsSource              func(context.Context, db.GetSavingsSourceParams) (db.SavingsSource, error)
+	addSavingsSource              func(context.Context, db.AddSavingsSourceParams) (db.SavingsSource, error)
+	listSavingsSources            func(context.Context, uuid.UUID) ([]db.SavingsSource, error)
+	updateSavingsSource           func(context.Context, db.UpdateSavingsSourceParams) (db.SavingsSource, error)
+	deleteSavingsSource           func(context.Context, db.DeleteSavingsSourceParams) error
+	upsertTaxReserveSavingsSource func(context.Context, db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error)
+	deleteTaxReserveSavingsSource func(context.Context, uuid.UUID) error
 }
 
 func (m *mockBudgetProfileRepo) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
@@ -727,7 +728,8 @@ func TestCreateFixedExpense_Success(t *testing.T) {
 			create: func(_ context.Context, arg db.CreateFixedExpenseParams) (db.FixedExpense, error) {
 				assert.Equal(t, "Rent", arg.Name)
 				assert.Equal(t, int32(1), arg.DayOfMonth)
-				return db.FixedExpense{ID: feID, BudgetProfileID: profileID, Name: arg.Name, DayOfMonth: arg.DayOfMonth}, nil
+				assert.Equal(t, int32(1), arg.IntervalMonths, "unset interval defaults to 1 (monthly)")
+				return db.FixedExpense{ID: feID, BudgetProfileID: profileID, Name: arg.Name, DayOfMonth: arg.DayOfMonth, IntervalMonths: arg.IntervalMonths}, nil
 			},
 		},
 		&mockUserRepo{},
@@ -739,7 +741,38 @@ func TestCreateFixedExpense_Success(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Rent", fe.Name)
+	assert.Equal(t, int32(1), fe.IntervalMonths)
 	assert.Nil(t, tx) // no active period in mock
+}
+
+func TestCreateFixedExpense_QuarterlyIntervalPassesThrough(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockTransactionRepo{},
+		&mockFixedExpenseRepo{
+			create: func(_ context.Context, arg db.CreateFixedExpenseParams) (db.FixedExpense, error) {
+				assert.Equal(t, int32(3), arg.IntervalMonths)
+				return db.FixedExpense{ID: feID, BudgetProfileID: profileID, Name: arg.Name, IntervalMonths: arg.IntervalMonths}, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	fe, _, err := svc.CreateFixedExpense(context.Background(), profileID, userID, FixedExpenseInput{
+		Name:           "Car insurance",
+		DayOfMonth:     15,
+		IntervalMonths: 3,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), fe.IntervalMonths)
 }
 
 func TestCreateFixedExpense_Forbidden(t *testing.T) {
@@ -807,18 +840,21 @@ func TestUpdateFixedExpense_Success(t *testing.T) {
 			update: func(_ context.Context, arg db.UpdateFixedExpenseParams) (db.FixedExpense, error) {
 				assert.Equal(t, feID, arg.ID)
 				assert.Equal(t, "New Rent", arg.Name)
-				return db.FixedExpense{ID: feID, Name: arg.Name}, nil
+				assert.Equal(t, int32(6), arg.IntervalMonths)
+				return db.FixedExpense{ID: feID, Name: arg.Name, IntervalMonths: arg.IntervalMonths}, nil
 			},
 		},
 		&mockUserRepo{},
 	)
 
 	fe, err := svc.UpdateFixedExpense(context.Background(), feID, profileID, userID, FixedExpenseInput{
-		Name:       "New Rent",
-		DayOfMonth: 1,
+		Name:           "New Rent",
+		DayOfMonth:     1,
+		IntervalMonths: 6,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "New Rent", fe.Name)
+	assert.Equal(t, int32(6), fe.IntervalMonths)
 }
 
 func TestDeleteFixedExpense_Success(t *testing.T) {
@@ -877,4 +913,203 @@ func TestDeleteFixedExpense_Forbidden_WrongProfile(t *testing.T) {
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	assert.True(t, errors.As(err, &forbidden))
+}
+
+// ── Fixed expense interval / due-date tests ────────────────────────────────────
+
+func TestIsFixedExpenseDueInMonth(t *testing.T) {
+	anchor := time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC) // created mid-January
+
+	tests := []struct {
+		name     string
+		interval int32
+		month    time.Time
+		want     bool
+	}{
+		{"monthly, same month as anchor", 1, time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), true},
+		{"monthly, every month is due", 1, time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC), true},
+		{"unset interval treated as monthly", 0, time.Date(2026, time.March, 1, 0, 0, 0, 0, time.UTC), true},
+		{"quarterly, anchor month is due", 3, time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), true},
+		{"quarterly, one month after anchor is not due", 3, time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC), false},
+		{"quarterly, two months after anchor is not due", 3, time.Date(2026, time.March, 1, 0, 0, 0, 0, time.UTC), false},
+		{"quarterly, three months after anchor is due", 3, time.Date(2026, time.April, 1, 0, 0, 0, 0, time.UTC), true},
+		{"quarterly, six months after anchor is due", 3, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC), true},
+		{"yearly, same month next year is due", 12, time.Date(2027, time.January, 1, 0, 0, 0, 0, time.UTC), true},
+		{"yearly, six months later is not due", 12, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC), false},
+		{"month before anchor is never due", 1, time.Date(2025, time.December, 1, 0, 0, 0, 0, time.UTC), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fe := db.FixedExpense{
+				CreatedAt:      pgtype.Timestamptz{Time: anchor, Valid: true},
+				IntervalMonths: tt.interval,
+			}
+			assert.Equal(t, tt.want, isFixedExpenseDueInMonth(fe, tt.month))
+		})
+	}
+}
+
+func TestFixedExpenseNextDueDate(t *testing.T) {
+	anchor := time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)
+	fe := db.FixedExpense{
+		CreatedAt:      pgtype.Timestamptz{Time: anchor, Valid: true},
+		IntervalMonths: 3,
+		DayOfMonth:     15,
+	}
+
+	// Asking from a not-due month finds the next due month ahead.
+	next := FixedExpenseNextDueDate(fe, time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC))
+	assert.Equal(t, time.Date(2026, time.April, 15, 0, 0, 0, 0, time.UTC), next)
+
+	// Asking from a due month returns that same month's date.
+	next = FixedExpenseNextDueDate(fe, time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC))
+	assert.Equal(t, time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC), next)
+}
+
+func TestFixedExpenseNextDueDate_ClampsToLastDayOfMonth(t *testing.T) {
+	anchor := time.Date(2026, time.January, 31, 0, 0, 0, 0, time.UTC)
+	fe := db.FixedExpense{
+		CreatedAt:      pgtype.Timestamptz{Time: anchor, Valid: true},
+		IntervalMonths: 1,
+		DayOfMonth:     31,
+	}
+	next := FixedExpenseNextDueDate(fe, time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC))
+	assert.Equal(t, time.Date(2026, time.February, 28, 0, 0, 0, 0, time.UTC), next, "Feb 2026 has 28 days")
+}
+
+// ── createNextPeriod fixed-expense spawn tests ─────────────────────────────────
+
+func TestCreateBudgetPeriod_FixedExpense_SkipsWhenNotDue(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	// Created 1 month ago on a quarterly cadence — not due this month.
+	createdAt := currentMonthStart.AddDate(0, -1, 0)
+	created := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID, Cycle: "monthly"}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				created = true
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{{
+					ID:              uuid.New(),
+					BudgetProfileID: profileID,
+					Name:            "Car insurance",
+					IntervalMonths:  3,
+					DayOfMonth:      15,
+					CreatedAt:       pgtype.Timestamptz{Time: createdAt, Valid: true},
+				}}, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.CreateBudgetPeriod(context.Background(), profileID, ownerID)
+	require.NoError(t, err)
+	assert.False(t, created, "not-due fixed expense should not spawn a transaction")
+}
+
+func TestCreateBudgetPeriod_FixedExpense_SpawnsWhenDue(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+	feID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	// Created exactly 3 months ago on a quarterly cadence — due this month.
+	createdAt := currentMonthStart.AddDate(0, -3, 0)
+	var createdArg db.CreateTransactionParams
+	created := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID, Cycle: "monthly"}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, arg db.CreateTransactionParams) (db.Transaction, error) {
+				created = true
+				createdArg = arg
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{{
+					ID:              feID,
+					BudgetProfileID: profileID,
+					Name:            "Car insurance",
+					IntervalMonths:  3,
+					DayOfMonth:      15,
+					CreatedAt:       pgtype.Timestamptz{Time: createdAt, Valid: true},
+				}}, nil
+			},
+			hasTransactionInMonth: func(_ context.Context, _ db.FixedExpenseHasTransactionInMonthParams) (bool, error) {
+				return false, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.CreateBudgetPeriod(context.Background(), profileID, ownerID)
+	require.NoError(t, err)
+	require.True(t, created, "due fixed expense should spawn a transaction")
+	assert.Equal(t, &feID, createdArg.FixedExpenseID)
+	assert.Equal(t, 15, createdArg.Date.Time.Day())
+}
+
+func TestCreateBudgetPeriod_FixedExpense_DedupSkipsAlreadySpawned(t *testing.T) {
+	ownerID := uuid.New()
+	profileID := uuid.New()
+	now := time.Now().UTC()
+	currentMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	createdAt := currentMonthStart // due this month (interval 1, same month as anchor)
+	created := false
+
+	svc := NewBudgetProfileService(
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: ownerID, Cycle: "monthly"}, nil
+			},
+		},
+		&mockTransactionRepo{
+			create: func(_ context.Context, _ db.CreateTransactionParams) (db.Transaction, error) {
+				created = true
+				return db.Transaction{}, nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{{
+					ID:              uuid.New(),
+					BudgetProfileID: profileID,
+					Name:            "Rent",
+					IntervalMonths:  1,
+					DayOfMonth:      1,
+					CreatedAt:       pgtype.Timestamptz{Time: createdAt, Valid: true},
+				}}, nil
+			},
+			// A transaction already exists for this fixed expense this month
+			// (e.g. spawned by CreateFixedExpense's immediate-spawn path).
+			hasTransactionInMonth: func(_ context.Context, _ db.FixedExpenseHasTransactionInMonthParams) (bool, error) {
+				return true, nil
+			},
+		},
+		&mockUserRepo{},
+	)
+
+	_, err := svc.CreateBudgetPeriod(context.Background(), profileID, ownerID)
+	require.NoError(t, err)
+	assert.False(t, created, "already-spawned fixed expense should not spawn a duplicate transaction")
 }

@@ -14,41 +14,42 @@ import (
 // ── Mock transaction repo ─────────────────────────────────────────────────────
 
 type mockTransactionRepo struct {
-	list                          func(context.Context, db.ListTransactionsParams) ([]db.Transaction, error)
-	listFixedRecurring            func(context.Context, uuid.UUID) ([]db.Transaction, error)
-	getByID                       func(context.Context, uuid.UUID) (db.Transaction, error)
-	create                        func(context.Context, db.CreateTransactionParams) (db.Transaction, error)
-	update                        func(context.Context, db.UpdateTransactionParams) (db.Transaction, error)
-	delete                        func(context.Context, db.DeleteTransactionParams) error
-	getCategory                   func(context.Context, int32) (db.GetCategoryRow, error)
-	listCategories                func(context.Context, uuid.UUID) ([]db.ListCategoriesRow, error)
-	listCategoriesForBudget       func(context.Context, uuid.UUID, uuid.UUID) ([]db.ListCategoriesRow, error)
-	createCategory                func(context.Context, db.CreateCategoryParams) (db.CreateCategoryRow, error)
-	updateCategory                func(context.Context, db.UpdateCategoryParams) (db.UpdateCategoryRow, error)
-	updateSystemCategoryColor     func(context.Context, db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error)
-	deleteCategoryAndReassign     func(context.Context, db.DeleteCategoryAndReassignParams) error
-	listPaymentMethods            func(context.Context, uuid.UUID) ([]db.ListPaymentMethodsRow, error)
-	createPaymentMethod           func(context.Context, db.CreatePaymentMethodParams) (db.PaymentMethod, error)
-	updatePaymentMethod           func(context.Context, db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
-	getPaymentMethod              func(context.Context, uuid.UUID) (db.PaymentMethod, error)
-	deletePaymentMethodAndReassign       func(context.Context, db.DeletePaymentMethodAndReassignParams) error
-	deleteSavingsSourceTransactions      func(context.Context, db.DeleteSavingsSourceTransactionsParams) error
-	markAsPaid                           func(context.Context, db.MarkTransactionAsPaidParams) (db.Transaction, error)
-	unmarkAsPaid                         func(context.Context, db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
+	list                            func(context.Context, db.ListTransactionsParams) ([]db.Transaction, error)
+	listFixedRecurring              func(context.Context, uuid.UUID) ([]db.Transaction, error)
+	getByID                         func(context.Context, uuid.UUID) (db.Transaction, error)
+	create                          func(context.Context, db.CreateTransactionParams) (db.Transaction, error)
+	update                          func(context.Context, db.UpdateTransactionParams) (db.Transaction, error)
+	delete                          func(context.Context, db.DeleteTransactionParams) error
+	getCategory                     func(context.Context, int32) (db.GetCategoryRow, error)
+	listCategories                  func(context.Context, uuid.UUID) ([]db.ListCategoriesRow, error)
+	listCategoriesForBudget         func(context.Context, uuid.UUID, uuid.UUID) ([]db.ListCategoriesRow, error)
+	createCategory                  func(context.Context, db.CreateCategoryParams) (db.CreateCategoryRow, error)
+	updateCategory                  func(context.Context, db.UpdateCategoryParams) (db.UpdateCategoryRow, error)
+	updateSystemCategoryColor       func(context.Context, db.UpdateSystemCategoryColorParams) (db.UpdateSystemCategoryColorRow, error)
+	deleteCategoryAndReassign       func(context.Context, db.DeleteCategoryAndReassignParams) error
+	listPaymentMethods              func(context.Context, uuid.UUID) ([]db.ListPaymentMethodsRow, error)
+	createPaymentMethod             func(context.Context, db.CreatePaymentMethodParams) (db.PaymentMethod, error)
+	updatePaymentMethod             func(context.Context, db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
+	getPaymentMethod                func(context.Context, uuid.UUID) (db.PaymentMethod, error)
+	deletePaymentMethodAndReassign  func(context.Context, db.DeletePaymentMethodAndReassignParams) error
+	deleteSavingsSourceTransactions func(context.Context, db.DeleteSavingsSourceTransactionsParams) error
+	markAsPaid                      func(context.Context, db.MarkTransactionAsPaidParams) (db.Transaction, error)
+	unmarkAsPaid                    func(context.Context, db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
 }
 
 // ── Mock fixed expense repo ───────────────────────────────────────────────────
 
 type mockFixedExpenseRepo struct {
-	create                        func(context.Context, db.CreateFixedExpenseParams) (db.FixedExpense, error)
-	getByID                       func(context.Context, uuid.UUID) (db.FixedExpense, error)
-	list                          func(context.Context, uuid.UUID) ([]db.FixedExpense, error)
-	update                        func(context.Context, db.UpdateFixedExpenseParams) (db.FixedExpense, error)
-	updatePlannedAmount           func(context.Context, db.UpdateFixedExpensePlannedAmountParams) error
-	deactivate                    func(context.Context, db.DeactivateFixedExpenseParams) error
-	getUnpaidTransaction          func(context.Context, db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error)
-	deleteUnpaidTransactions      func(context.Context, db.DeleteUnpaidTransactionByFixedExpenseParams) error
-	updateTransactionFromFixed    func(context.Context, db.UpdateTransactionFromFixedExpenseParams) error
+	create                     func(context.Context, db.CreateFixedExpenseParams) (db.FixedExpense, error)
+	getByID                    func(context.Context, uuid.UUID) (db.FixedExpense, error)
+	list                       func(context.Context, uuid.UUID) ([]db.FixedExpense, error)
+	update                     func(context.Context, db.UpdateFixedExpenseParams) (db.FixedExpense, error)
+	updatePlannedAmount        func(context.Context, db.UpdateFixedExpensePlannedAmountParams) error
+	deactivate                 func(context.Context, db.DeactivateFixedExpenseParams) error
+	getUnpaidTransaction       func(context.Context, db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error)
+	deleteUnpaidTransactions   func(context.Context, db.DeleteUnpaidTransactionByFixedExpenseParams) error
+	updateTransactionFromFixed func(context.Context, db.UpdateTransactionFromFixedExpenseParams) error
+	hasTransactionInMonth      func(context.Context, db.FixedExpenseHasTransactionInMonthParams) (bool, error)
 }
 
 func (m *mockFixedExpenseRepo) Create(ctx context.Context, arg db.CreateFixedExpenseParams) (db.FixedExpense, error) {
@@ -104,6 +105,12 @@ func (m *mockFixedExpenseRepo) UpdateTransactionFromFixedExpense(ctx context.Con
 		return m.updateTransactionFromFixed(ctx, arg)
 	}
 	return nil
+}
+func (m *mockFixedExpenseRepo) HasTransactionInMonth(ctx context.Context, arg db.FixedExpenseHasTransactionInMonthParams) (bool, error) {
+	if m.hasTransactionInMonth != nil {
+		return m.hasTransactionInMonth(ctx, arg)
+	}
+	return false, nil
 }
 
 // ── Mock expense allocation repo ──────────────────────────────────────────────

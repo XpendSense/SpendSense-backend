@@ -96,6 +96,7 @@ type FixedExpense struct {
 	DayOfMonth      int32              `json:"day_of_month"`
 	IsActive        bool               `json:"is_active"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	IntervalMonths  int32              `json:"interval_months"`
 }
 
 type IncomeEntry struct {

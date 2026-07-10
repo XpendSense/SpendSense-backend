@@ -245,23 +245,28 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 		s.createSavingsTransactions(ctx, profile.ID, profile.UserID, src)
 	}
 
-	// Spawn fixed expense transactions for the new period.
+	// Spawn fixed expense transactions for the new period — only for expenses
+	// actually due this period's month (see isFixedExpenseDueInMonth), and at
+	// most once per calendar month even if weekly/bi-weekly cycles land more
+	// than one period inside that month.
 	fixedExpenses, _ := s.fixedExpenses.List(ctx, profile.ID)
 	txTypeFixed := int32(1)
-	lastDay := time.Date(startDate.Year(), startDate.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	monthStart := time.Date(startDate.Year(), startDate.Month(), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd := monthStart.AddDate(0, 1, 0)
 	for _, fe := range fixedExpenses {
-		day := int(fe.DayOfMonth)
-		if day < 1 {
-			day = 1
-		}
-		if day > lastDay {
-			day = lastDay
-		}
-		txDate := pgtype.Date{
-			Time:  time.Date(startDate.Year(), startDate.Month(), day, 0, 0, 0, 0, time.UTC),
-			Valid: true,
+		if !isFixedExpenseDueInMonth(fe, monthStart) {
+			continue
 		}
 		feID := fe.ID
+		exists, _ := s.fixedExpenses.HasTransactionInMonth(ctx, db.FixedExpenseHasTransactionInMonthParams{
+			FixedExpenseID: feID,
+			MonthStart:     pgtype.Date{Time: monthStart, Valid: true},
+			MonthEnd:       pgtype.Date{Time: monthEnd, Valid: true},
+		})
+		if exists {
+			continue
+		}
+		txDate := pgtype.Date{Time: fixedExpenseDateInMonth(fe, monthStart), Valid: true}
 		name := fe.Name
 		_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
 			Name:              &name,
@@ -277,6 +282,61 @@ func (s *BudgetProfileService) createNextPeriod(ctx context.Context, profile db.
 	}
 
 	return period, nil
+}
+
+// fixedExpenseMonthIndex converts a date to an absolute month number
+// (year*12 + month) for interval arithmetic.
+func fixedExpenseMonthIndex(t time.Time) int {
+	return t.Year()*12 + int(t.Month())
+}
+
+// isFixedExpenseDueInMonth reports whether fe is due in the month starting at
+// monthStart, using fe.CreatedAt's month as the implicit anchor: due when the
+// number of months elapsed since creation is a multiple of IntervalMonths.
+func isFixedExpenseDueInMonth(fe db.FixedExpense, monthStart time.Time) bool {
+	interval := int(fe.IntervalMonths)
+	if interval < 1 {
+		interval = 1
+	}
+	diff := fixedExpenseMonthIndex(monthStart) - fixedExpenseMonthIndex(fe.CreatedAt.Time)
+	if diff < 0 {
+		return false
+	}
+	return diff%interval == 0
+}
+
+// fixedExpenseDateInMonth returns fe's transaction date within monthStart's
+// month, clamping DayOfMonth to that month's last day when needed.
+func fixedExpenseDateInMonth(fe db.FixedExpense, monthStart time.Time) time.Time {
+	lastDay := time.Date(monthStart.Year(), monthStart.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	day := int(fe.DayOfMonth)
+	if day < 1 {
+		day = 1
+	}
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(monthStart.Year(), monthStart.Month(), day, 0, 0, 0, 0, time.UTC)
+}
+
+// FixedExpenseNextDueDate returns the next date on or after `from` that fe is
+// due, as a full transaction date (day-of-month applied and clamped). Used to
+// surface a computed, non-persisted "next due" field to clients.
+func FixedExpenseNextDueDate(fe db.FixedExpense, from time.Time) time.Time {
+	interval := int(fe.IntervalMonths)
+	if interval < 1 {
+		interval = 1
+	}
+	monthStart := time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < interval; i++ {
+		if isFixedExpenseDueInMonth(fe, monthStart) {
+			return fixedExpenseDateInMonth(fe, monthStart)
+		}
+		monthStart = monthStart.AddDate(0, 1, 0)
+	}
+	// Unreachable in practice (a multiple of interval is always found within
+	// `interval` months), but fall back to `from`'s month if it somehow isn't.
+	return fixedExpenseDateInMonth(fe, time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, time.UTC))
 }
 
 func (s *BudgetProfileService) ListBudgetPeriods(ctx context.Context, profileID, userID uuid.UUID) ([]db.BudgetPeriod, error) {
@@ -858,6 +918,7 @@ type FixedExpenseInput struct {
 	CategoryID      *int32
 	PaymentMethodID *uuid.UUID
 	DayOfMonth      int32
+	IntervalMonths  int32
 }
 
 func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID, userID uuid.UUID, inp FixedExpenseInput) (db.FixedExpense, *db.Transaction, error) {
@@ -868,6 +929,10 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 	if day < 1 {
 		day = 1
 	}
+	interval := inp.IntervalMonths
+	if interval < 1 {
+		interval = 1
+	}
 	fe, err := s.fixedExpenses.Create(ctx, db.CreateFixedExpenseParams{
 		BudgetProfileID: profileID,
 		Name:            inp.Name,
@@ -875,6 +940,7 @@ func (s *BudgetProfileService) CreateFixedExpense(ctx context.Context, profileID
 		CategoryID:      inp.CategoryID,
 		PaymentMethodID: inp.PaymentMethodID,
 		DayOfMonth:      day,
+		IntervalMonths:  interval,
 	})
 	if err != nil {
 		return db.FixedExpense{}, nil, err
@@ -930,6 +996,10 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 	if day < 1 {
 		day = 1
 	}
+	interval := inp.IntervalMonths
+	if interval < 1 {
+		interval = 1
+	}
 	fe, err := s.fixedExpenses.Update(ctx, db.UpdateFixedExpenseParams{
 		ID:              id,
 		BudgetProfileID: profileID,
@@ -938,6 +1008,7 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 		CategoryID:      inp.CategoryID,
 		PaymentMethodID: inp.PaymentMethodID,
 		DayOfMonth:      day,
+		IntervalMonths:  interval,
 	})
 	if err != nil {
 		return db.FixedExpense{}, err

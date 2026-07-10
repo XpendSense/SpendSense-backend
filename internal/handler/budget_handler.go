@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -11,6 +12,7 @@ import (
 	"github.com/mauro-afa91/spendsense/internal/middleware"
 	"github.com/mauro-afa91/spendsense/internal/service"
 	db "github.com/mauro-afa91/spendsense/internal/sqlc"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type BudgetHandler struct {
@@ -463,6 +465,8 @@ func toProtoFixedExpense(fe db.FixedExpense) *v1.FixedExpense {
 		PlannedAmount:   moneyFromNumeric(fe.PlannedAmount),
 		DayOfMonth:      fe.DayOfMonth,
 		IsActive:        fe.IsActive,
+		IntervalMonths:  fe.IntervalMonths,
+		NextDueDate:     timestamppb.New(service.FixedExpenseNextDueDate(fe, time.Now().UTC())),
 	}
 	if fe.CategoryID != nil {
 		proto.CategoryId = *fe.CategoryID
@@ -530,6 +534,7 @@ func (h *BudgetHandler) CreateFixedExpense(ctx context.Context, req *connect.Req
 		CategoryID:      catID,
 		PaymentMethodID: pmID,
 		DayOfMonth:      req.Msg.DayOfMonth,
+		IntervalMonths:  req.Msg.IntervalMonths,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
@@ -573,6 +578,7 @@ func (h *BudgetHandler) UpdateFixedExpense(ctx context.Context, req *connect.Req
 		CategoryID:      catID,
 		PaymentMethodID: pmID,
 		DayOfMonth:      req.Msg.DayOfMonth,
+		IntervalMonths:  req.Msg.IntervalMonths,
 	})
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)

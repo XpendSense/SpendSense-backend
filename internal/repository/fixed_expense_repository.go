@@ -20,6 +20,7 @@ type FixedExpenseRepository interface {
 	GetUnpaidTransaction(ctx context.Context, arg db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error)
 	DeleteUnpaidTransactions(ctx context.Context, arg db.DeleteUnpaidTransactionByFixedExpenseParams) error
 	UpdateTransactionFromFixedExpense(ctx context.Context, arg db.UpdateTransactionFromFixedExpenseParams) error
+	HasTransactionInMonth(ctx context.Context, arg db.FixedExpenseHasTransactionInMonthParams) (bool, error)
 }
 
 type fixedExpenseRepository struct {
@@ -76,4 +77,8 @@ func (r *fixedExpenseRepository) DeleteUnpaidTransactions(ctx context.Context, a
 
 func (r *fixedExpenseRepository) UpdateTransactionFromFixedExpense(ctx context.Context, arg db.UpdateTransactionFromFixedExpenseParams) error {
 	return r.q.UpdateTransactionFromFixedExpense(ctx, arg)
+}
+
+func (r *fixedExpenseRepository) HasTransactionInMonth(ctx context.Context, arg db.FixedExpenseHasTransactionInMonthParams) (bool, error) {
+	return r.q.FixedExpenseHasTransactionInMonth(ctx, arg)
 }
