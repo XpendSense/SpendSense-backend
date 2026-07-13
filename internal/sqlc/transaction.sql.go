@@ -457,6 +457,34 @@ func (q *Queries) GetPaymentMethodByPlaidAccountID(ctx context.Context, plaidAcc
 	return i, err
 }
 
+const getPaymentMethodByUserAndName = `-- name: GetPaymentMethodByUserAndName :one
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
+FROM payment_methods
+WHERE user_id = $1 AND name = $2 AND is_active = TRUE
+LIMIT 1
+`
+
+type GetPaymentMethodByUserAndNameParams struct {
+	UserID *uuid.UUID `json:"user_id"`
+	Name   string     `json:"name"`
+}
+
+func (q *Queries) GetPaymentMethodByUserAndName(ctx context.Context, arg GetPaymentMethodByUserAndNameParams) (PaymentMethod, error) {
+	row := q.db.QueryRow(ctx, getPaymentMethodByUserAndName, arg.UserID, arg.Name)
+	var i PaymentMethod
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PaymentTypeID,
+		&i.UserID,
+		&i.IsActive,
+		&i.BudgetPersonID,
+		&i.Color,
+		&i.PlaidAccountID,
+	)
+	return i, err
+}
+
 const getTransactionByID = `-- name: GetTransactionByID :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
@@ -979,6 +1007,22 @@ func (q *Queries) UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMeth
 		&i.PlaidAccountID,
 	)
 	return i, err
+}
+
+const updatePaymentMethodPlaidAccountID = `-- name: UpdatePaymentMethodPlaidAccountID :exec
+UPDATE payment_methods
+SET plaid_account_id = $1
+WHERE id = $2
+`
+
+type UpdatePaymentMethodPlaidAccountIDParams struct {
+	PlaidAccountID *string   `json:"plaid_account_id"`
+	ID             uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdatePaymentMethodPlaidAccountID(ctx context.Context, arg UpdatePaymentMethodPlaidAccountIDParams) error {
+	_, err := q.db.Exec(ctx, updatePaymentMethodPlaidAccountID, arg.PlaidAccountID, arg.ID)
+	return err
 }
 
 const updateSystemCategoryColor = `-- name: UpdateSystemCategoryColor :one

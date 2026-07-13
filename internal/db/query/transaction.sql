@@ -204,6 +204,17 @@ FROM payment_methods
 WHERE plaid_account_id = $1 AND is_active = TRUE
 LIMIT 1;
 
+-- name: GetPaymentMethodByUserAndName :one
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
+FROM payment_methods
+WHERE user_id = $1 AND name = $2 AND is_active = TRUE
+LIMIT 1;
+
+-- name: UpdatePaymentMethodPlaidAccountID :exec
+UPDATE payment_methods
+SET plaid_account_id = $1
+WHERE id = $2;
+
 -- name: ListTransactionTypes :many
 SELECT id, name FROM transaction_type ORDER BY id;
 

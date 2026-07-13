@@ -149,14 +149,22 @@ func (s *PlaidService) ExchangePublicToken(ctx context.Context, userID, profileI
 		if personErr == nil {
 			personID := int32(person.ID)
 			for _, acct := range accounts {
-				// Skip if a payment method for this account already exists
-				// (handles reconnects without creating duplicates).
-				if _, existsErr := s.transactions.GetPaymentMethodByPlaidAccountID(ctx, acct.PlaidAccountID); existsErr == nil {
+				name := plaidclient.PlaidAccountName(acct.Name, acct.Mask)
+				plaidAcctID := acct.PlaidAccountID
+
+				// Exact match by plaid_account_id — same connection or stable ID.
+				if _, existsErr := s.transactions.GetPaymentMethodByPlaidAccountID(ctx, plaidAcctID); existsErr == nil {
 					continue
 				}
-				name := plaidclient.PlaidAccountName(acct.Name, acct.Mask)
+				// Name-based fallback — Plaid issues new account_ids on reconnect.
+				// If a method with the same name exists, update its plaid_account_id
+				// so future reconnects dedup correctly, then skip creation.
+				if existing, existsErr := s.transactions.GetPaymentMethodByUserAndName(ctx, userID, name); existsErr == nil {
+					_ = s.transactions.UpdatePaymentMethodPlaidAccountID(ctx, existing.ID, plaidAcctID)
+					continue
+				}
+
 				typeID := plaidclient.PlaidPaymentTypeID(acct.Type, acct.Subtype)
-				plaidAcctID := acct.PlaidAccountID
 				if _, pmErr := s.transactions.CreatePaymentMethodFromPlaid(ctx, db.CreatePaymentMethodFromPlaidParams{
 					Name:           name,
 					PaymentTypeID:  &typeID,
