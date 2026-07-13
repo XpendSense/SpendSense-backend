@@ -115,10 +115,39 @@ func (c *client) SyncTransactions(ctx context.Context, accessToken, cursor strin
 	return added, modified, removedIDs, resp.GetNextCursor(), nil
 }
 
+// paymentPrimaryCategories are Plaid personal_finance_category.primary values
+// that represent payments to financial institutions or inter-account transfers
+// rather than actual spending — we exclude these from import.
+var paymentPrimaryCategories = map[string]bool{
+	"LOAN_PAYMENTS": true, // credit card bill payments, mortgage, auto/student loans
+	"TRANSFER_IN":   true, // incoming bank transfers, direct deposits
+	"TRANSFER_OUT":  true, // outgoing bank transfers, wire transfers
+}
+
+func isPaymentOrTransfer(t plaidSDK.Transaction) bool {
+	if pfc, ok := t.GetPersonalFinanceCategoryOk(); ok && pfc != nil {
+		return paymentPrimaryCategories[pfc.GetPrimary()]
+	}
+	// Fallback: deprecated field — "special" covers credit card payments,
+	// loan payments, and bank transfers when personal_finance_category is absent.
+	return t.GetTransactionType() == "special"
+}
+
 func toTransactions(ts []plaidSDK.Transaction) []Transaction {
 	out := make([]Transaction, 0, len(ts))
 	for _, t := range ts {
-		d, err := time.Parse("2006-01-02", t.GetDate())
+		if isPaymentOrTransfer(t) {
+			continue
+		}
+
+		// Prefer authorized_date (when the user made the purchase) over date
+		// (when the bank settled it). The posted date can be 1–3 days later,
+		// which would mis-route boundary transactions to the wrong period.
+		dateStr := t.GetDate()
+		if ad, ok := t.GetAuthorizedDateOk(); ok && ad != nil && *ad != "" {
+			dateStr = *ad
+		}
+		d, err := time.Parse("2006-01-02", dateStr)
 		if err != nil {
 			continue
 		}
