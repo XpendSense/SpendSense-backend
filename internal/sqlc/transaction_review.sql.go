@@ -163,7 +163,9 @@ SELECT
 FROM transaction_review tr
 JOIN transaction t  ON t.id  = tr.transaction_id
 JOIN fixed_expense fe ON fe.id = tr.fixed_expense_id
-WHERE tr.budget_period_id = $1
+JOIN budget_period bp ON bp.id = tr.budget_period_id
+WHERE bp.budget_profile_id = $1
+  AND bp.is_archived = FALSE
   AND tr.status = 'pending'
 ORDER BY tr.match_score DESC
 `
@@ -181,8 +183,8 @@ type ListPendingTransactionReviewsRow struct {
 	FixedExpenseName  string             `json:"fixed_expense_name"`
 }
 
-func (q *Queries) ListPendingTransactionReviews(ctx context.Context, budgetPeriodID uuid.UUID) ([]ListPendingTransactionReviewsRow, error) {
-	rows, err := q.db.Query(ctx, listPendingTransactionReviews, budgetPeriodID)
+func (q *Queries) ListPendingTransactionReviews(ctx context.Context, budgetProfileID uuid.UUID) ([]ListPendingTransactionReviewsRow, error) {
+	rows, err := q.db.Query(ctx, listPendingTransactionReviews, budgetProfileID)
 	if err != nil {
 		return nil, err
 	}
@@ -224,4 +226,41 @@ type UpdateTransactionReviewStatusParams struct {
 func (q *Queries) UpdateTransactionReviewStatus(ctx context.Context, arg UpdateTransactionReviewStatusParams) error {
 	_, err := q.db.Exec(ctx, updateTransactionReviewStatus, arg.ID, arg.Status)
 	return err
+}
+
+const upsertTransactionReview = `-- name: UpsertTransactionReview :one
+INSERT INTO transaction_review (budget_period_id, transaction_id, fixed_expense_id, match_score, status)
+VALUES ($1, $2, $3, $4, 'pending')
+ON CONFLICT (transaction_id) DO UPDATE SET
+    fixed_expense_id = EXCLUDED.fixed_expense_id,
+    match_score      = EXCLUDED.match_score,
+    status           = 'pending'
+RETURNING id, budget_period_id, transaction_id, fixed_expense_id, match_score, status, created_at
+`
+
+type UpsertTransactionReviewParams struct {
+	BudgetPeriodID uuid.UUID      `json:"budget_period_id"`
+	TransactionID  uuid.UUID      `json:"transaction_id"`
+	FixedExpenseID uuid.UUID      `json:"fixed_expense_id"`
+	MatchScore     pgtype.Numeric `json:"match_score"`
+}
+
+func (q *Queries) UpsertTransactionReview(ctx context.Context, arg UpsertTransactionReviewParams) (TransactionReview, error) {
+	row := q.db.QueryRow(ctx, upsertTransactionReview,
+		arg.BudgetPeriodID,
+		arg.TransactionID,
+		arg.FixedExpenseID,
+		arg.MatchScore,
+	)
+	var i TransactionReview
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetPeriodID,
+		&i.TransactionID,
+		&i.FixedExpenseID,
+		&i.MatchScore,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
 }

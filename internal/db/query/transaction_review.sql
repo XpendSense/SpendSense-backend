@@ -14,9 +14,20 @@ SELECT
 FROM transaction_review tr
 JOIN transaction t  ON t.id  = tr.transaction_id
 JOIN fixed_expense fe ON fe.id = tr.fixed_expense_id
-WHERE tr.budget_period_id = $1
+JOIN budget_period bp ON bp.id = tr.budget_period_id
+WHERE bp.budget_profile_id = $1
+  AND bp.is_archived = FALSE
   AND tr.status = 'pending'
 ORDER BY tr.match_score DESC;
+
+-- name: UpsertTransactionReview :one
+INSERT INTO transaction_review (budget_period_id, transaction_id, fixed_expense_id, match_score, status)
+VALUES ($1, $2, $3, $4, 'pending')
+ON CONFLICT (transaction_id) DO UPDATE SET
+    fixed_expense_id = EXCLUDED.fixed_expense_id,
+    match_score      = EXCLUDED.match_score,
+    status           = 'pending'
+RETURNING id, budget_period_id, transaction_id, fixed_expense_id, match_score, status, created_at;
 
 -- name: GetTransactionReview :one
 SELECT id, budget_period_id, transaction_id, fixed_expense_id, match_score, status, created_at

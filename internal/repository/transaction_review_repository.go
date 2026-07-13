@@ -13,7 +13,8 @@ import (
 
 type TransactionReviewRepository interface {
 	Create(ctx context.Context, periodID, transactionID, fixedExpenseID uuid.UUID, score float64) (db.TransactionReview, error)
-	ListPending(ctx context.Context, periodID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error)
+	Upsert(ctx context.Context, periodID, transactionID, fixedExpenseID uuid.UUID, score float64) (db.TransactionReview, error)
+	ListPending(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error)
 	GetByID(ctx context.Context, id uuid.UUID) (db.TransactionReview, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	CreateAlias(ctx context.Context, fixedExpenseID uuid.UUID, alias string) error
@@ -42,8 +43,21 @@ func (r *transactionReviewRepository) Create(ctx context.Context, periodID, tran
 	})
 }
 
-func (r *transactionReviewRepository) ListPending(ctx context.Context, periodID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error) {
-	return r.q.ListPendingTransactionReviews(ctx, periodID)
+func (r *transactionReviewRepository) Upsert(ctx context.Context, periodID, transactionID, fixedExpenseID uuid.UUID, score float64) (db.TransactionReview, error) {
+	var scoreNum pgtype.Numeric
+	if err := scoreNum.Scan(fmt.Sprintf("%.2f", score)); err != nil {
+		return db.TransactionReview{}, err
+	}
+	return r.q.UpsertTransactionReview(ctx, db.UpsertTransactionReviewParams{
+		BudgetPeriodID: periodID,
+		TransactionID:  transactionID,
+		FixedExpenseID: fixedExpenseID,
+		MatchScore:     scoreNum,
+	})
+}
+
+func (r *transactionReviewRepository) ListPending(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error) {
+	return r.q.ListPendingTransactionReviews(ctx, budgetProfileID)
 }
 
 func (r *transactionReviewRepository) GetByID(ctx context.Context, id uuid.UUID) (db.TransactionReview, error) {

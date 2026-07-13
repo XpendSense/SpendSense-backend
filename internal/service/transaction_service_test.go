@@ -329,6 +329,9 @@ func (m *mockTransactionReviewRepo) CreateAlias(_ context.Context, _ uuid.UUID, 
 func (m *mockTransactionReviewRepo) ListAliases(_ context.Context, _ uuid.UUID) ([]string, error) {
 	return nil, nil
 }
+func (m *mockTransactionReviewRepo) Upsert(_ context.Context, _, _, _ uuid.UUID, _ float64) (db.TransactionReview, error) {
+	return db.TransactionReview{}, nil
+}
 func (m *mockTransactionReviewRepo) GetFixedExpenseByAlias(_ context.Context, _ string, _ uuid.UUID) (db.GetFixedExpenseByAliasRow, error) {
 	return db.GetFixedExpenseByAliasRow{}, apperr.NotFound("fixed_expense_alias", "")
 }
@@ -915,6 +918,127 @@ func TestCreateTransaction_ViewerForbidden(t *testing.T) {
 	)
 
 	_, err := svc.Create(context.Background(), db.CreateTransactionParams{BudgetPeriodID: &periodID}, userID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}
+
+// ── MarkTransactionForReview tests ────────────────────────────────────────────
+
+func TestMarkTransactionForReview_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+	feID := uuid.New()
+	typeID := int32(2) // Variable
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: id, TransactionTypeID: &typeID, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.FixedExpense, error) {
+				return db.FixedExpense{ID: id, BudgetProfileID: profileID}, nil
+			},
+		},
+		&mockTransactionReviewRepo{},
+	)
+
+	review, err := svc.MarkTransactionForReview(context.Background(), userID, txID, feID, profileID)
+	require.NoError(t, err)
+	assert.Equal(t, db.TransactionReview{}, review) // mock returns zero value
+}
+
+func TestMarkTransactionForReview_Forbidden_WhenViewer(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{},
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+			},
+			getPersonByUserID: func(_ context.Context, _, _ uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{Role: "viewer"}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.MarkTransactionForReview(context.Background(), userID, uuid.New(), uuid.New(), profileID)
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}
+
+func TestMarkTransactionForReview_Invalid_WhenFixed(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	typeID := int32(1) // Fixed
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: id, TransactionTypeID: &typeID, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.MarkTransactionForReview(context.Background(), userID, uuid.New(), uuid.New(), profileID)
+	require.Error(t, err)
+	var invalid *apperr.ValidationError
+	require.ErrorAs(t, err, &invalid)
+}
+
+func TestMarkTransactionForReview_Forbidden_WhenFixedExpenseOtherBudget(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	typeID := int32(2)
+	otherProfile := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
+				return db.Transaction{ID: id, TransactionTypeID: &typeID, BudgetPeriodID: &periodID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.FixedExpense, error) {
+				return db.FixedExpense{ID: id, BudgetProfileID: otherProfile}, nil
+			},
+		},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.MarkTransactionForReview(context.Background(), userID, uuid.New(), uuid.New(), profileID)
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	require.ErrorAs(t, err, &forbidden)

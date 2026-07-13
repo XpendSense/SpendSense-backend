@@ -59,6 +59,37 @@ func (s *TransactionService) assertPeriodCollaborator(ctx context.Context, perio
 	return nil
 }
 
+func (s *TransactionService) getUserRoleForProfile(ctx context.Context, profileID, userID uuid.UUID) (string, error) {
+	profile, err := s.profiles.GetByID(ctx, profileID)
+	if err != nil {
+		return "", err
+	}
+	if profile.UserID == userID {
+		return "admin", nil
+	}
+	person, err := s.profiles.GetPersonByUserID(ctx, profileID, userID)
+	if err != nil {
+		return "", apperr.Forbidden("access denied")
+	}
+	return person.Role, nil
+}
+
+func (s *TransactionService) assertProfileMember(ctx context.Context, profileID, userID uuid.UUID) error {
+	_, err := s.getUserRoleForProfile(ctx, profileID, userID)
+	return err
+}
+
+func (s *TransactionService) assertProfileCollaborator(ctx context.Context, profileID, userID uuid.UUID) error {
+	role, err := s.getUserRoleForProfile(ctx, profileID, userID)
+	if err != nil {
+		return err
+	}
+	if role != "admin" && role != "collaborator" {
+		return apperr.Forbidden("access denied")
+	}
+	return nil
+}
+
 func (s *TransactionService) GetByID(ctx context.Context, id uuid.UUID) (db.Transaction, error) {
 	return s.transactions.GetByID(ctx, id)
 }
@@ -246,11 +277,35 @@ func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replac
 
 // ── Transaction review ────────────────────────────────────────────────────────
 
-func (s *TransactionService) ListTransactionReviews(ctx context.Context, userID, periodID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error) {
-	if err := s.assertPeriodMember(ctx, periodID, userID); err != nil {
+func (s *TransactionService) ListTransactionReviews(ctx context.Context, userID, profileID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error) {
+	if err := s.assertProfileMember(ctx, profileID, userID); err != nil {
 		return nil, err
 	}
-	return s.reviews.ListPending(ctx, periodID)
+	return s.reviews.ListPending(ctx, profileID)
+}
+
+func (s *TransactionService) MarkTransactionForReview(ctx context.Context, userID, txID, fixedExpenseID, profileID uuid.UUID) (db.TransactionReview, error) {
+	if err := s.assertProfileCollaborator(ctx, profileID, userID); err != nil {
+		return db.TransactionReview{}, err
+	}
+	tx, err := s.transactions.GetByID(ctx, txID)
+	if err != nil {
+		return db.TransactionReview{}, err
+	}
+	if tx.TransactionTypeID == nil || *tx.TransactionTypeID != 2 {
+		return db.TransactionReview{}, apperr.Invalid("only variable transactions can be flagged for review")
+	}
+	if tx.BudgetPeriodID == nil {
+		return db.TransactionReview{}, apperr.Invalid("transaction has no budget period")
+	}
+	fe, err := s.fixedExpenses.GetByID(ctx, fixedExpenseID)
+	if err != nil {
+		return db.TransactionReview{}, err
+	}
+	if fe.BudgetProfileID != profileID {
+		return db.TransactionReview{}, apperr.Forbidden("fixed expense belongs to a different budget")
+	}
+	return s.reviews.Upsert(ctx, *tx.BudgetPeriodID, txID, fixedExpenseID, 100.0)
 }
 
 func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userID, reviewID, budgetProfileID uuid.UUID) error {

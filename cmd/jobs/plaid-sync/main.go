@@ -202,12 +202,17 @@ func main() {
 				continue
 			}
 
-			// Score against fixed expense templates — queue for review if ≥ 80.
+			// Score against fixed expense templates — queue for review if ≥ 80 and not yet paid.
 			bestScore, bestFE := scoreBestMatch(tx, categoryID, paymentMethodID, fixedExpenses)
 			if bestScore >= 80 && bestFE != nil {
-				if _, rErr := reviewRepo.Create(ctx, periodID, inserted.ID, bestFE.ID, bestScore); rErr == nil {
-					queued++
-					log.Printf("item %s: queued review for %q (score=%.0f, fixed=%q)", item.ID, tx.Name, bestScore, bestFE.Name)
+				if _, upErr := feRepo.GetUnpaidTransaction(ctx, sqlcdb.GetUnpaidTransactionByFixedExpenseParams{
+					FixedExpenseID:  bestFE.ID,
+					BudgetProfileID: item.BudgetProfileID,
+				}); upErr == nil {
+					if _, rErr := reviewRepo.Create(ctx, periodID, inserted.ID, bestFE.ID, bestScore); rErr == nil {
+						queued++
+						log.Printf("item %s: queued review for %q (score=%.0f, fixed=%q)", item.ID, tx.Name, bestScore, bestFE.Name)
+					}
 				}
 			}
 		}
