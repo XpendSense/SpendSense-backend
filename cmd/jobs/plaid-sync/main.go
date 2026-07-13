@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/mauro-afa91/spendsense/internal/crypto"
 	"github.com/mauro-afa91/spendsense/internal/db"
@@ -100,6 +101,9 @@ func main() {
 		const variableTypeID = 2
 		const oneOffFreqID = 1
 
+		// Cache plaid_account_id → payment_method_id for this item's sync run.
+		pmCache := map[string]*uuid.UUID{}
+
 		importedAdded := 0
 		skippedNoPeriod := 0
 		skippedDuplicate := 0
@@ -130,6 +134,21 @@ func main() {
 				}
 			}
 
+			// Resolve payment method from cached plaid_account_id lookup.
+			var paymentMethodID *uuid.UUID
+			if tx.AccountID != "" {
+				if pmID, cached := pmCache[tx.AccountID]; cached {
+					paymentMethodID = pmID
+				} else {
+					pm, pmErr := txRepo.GetPaymentMethodByPlaidAccountID(ctx, tx.AccountID)
+					if pmErr == nil {
+						id := pm.ID
+						paymentMethodID = &id
+					}
+					pmCache[tx.AccountID] = paymentMethodID
+				}
+			}
+
 			_, err = txRepo.CreateTransactionFromPlaid(ctx, sqlcdb.CreateTransactionFromPlaidParams{
 				Name:                   &tx.Name,
 				Amount:                 amount,
@@ -138,6 +157,7 @@ func main() {
 				Recurring:              boolPtr(false),
 				BudgetPeriodID:         &periodID,
 				CategoryID:             categoryID,
+				PaymentMethodID:        paymentMethodID,
 				TransactionFrequencyID: int32Ptr(oneOffFreqID),
 				TransactionTypeID:      int32Ptr(variableTypeID),
 				PlaidTransactionID:     &plaidID,

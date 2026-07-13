@@ -291,6 +291,14 @@ func (m *mockTransactionRepo) DeleteTransactionByPlaidID(ctx context.Context, pl
 	return nil
 }
 
+func (m *mockTransactionRepo) CreatePaymentMethodFromPlaid(ctx context.Context, arg db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error) {
+	return db.PaymentMethod{}, nil
+}
+
+func (m *mockTransactionRepo) GetPaymentMethodByPlaidAccountID(ctx context.Context, plaidAccountID string) (db.PaymentMethod, error) {
+	return db.PaymentMethod{}, apperr.NotFound("payment_method", plaidAccountID)
+}
+
 // ── UpdatePaymentMethod tests ─────────────────────────────────────────────────
 
 func TestUpdatePaymentMethod_Success(t *testing.T) {

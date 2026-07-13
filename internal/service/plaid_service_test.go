@@ -15,11 +15,12 @@ import (
 // ── Mock Plaid client ─────────────────────────────────────────────────────────
 
 type mockPlaidClient struct {
-	createLinkToken      func(ctx context.Context, userID string) (string, string, error)
-	exchangePublicToken  func(ctx context.Context, publicToken string) (string, string, error)
-	getInstitutionName   func(ctx context.Context, institutionID string) (string, error)
-	removeItem           func(ctx context.Context, accessToken string) error
-	syncTransactions     func(ctx context.Context, accessToken, cursor string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error)
+	createLinkToken     func(ctx context.Context, userID string) (string, string, error)
+	exchangePublicToken func(ctx context.Context, publicToken string) (string, string, error)
+	getAccounts         func(ctx context.Context, accessToken string) ([]plaidclient.Account, string, error)
+	getInstitutionName  func(ctx context.Context, institutionID string) (string, error)
+	removeItem          func(ctx context.Context, accessToken string) error
+	syncTransactions    func(ctx context.Context, accessToken, cursor string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error)
 }
 
 func (m *mockPlaidClient) CreateLinkToken(ctx context.Context, userID string) (string, string, error) {
@@ -34,6 +35,13 @@ func (m *mockPlaidClient) ExchangePublicToken(ctx context.Context, publicToken s
 		return m.exchangePublicToken(ctx, publicToken)
 	}
 	return "access-token", "item-id-123", nil
+}
+
+func (m *mockPlaidClient) GetAccounts(ctx context.Context, accessToken string) ([]plaidclient.Account, string, error) {
+	if m.getAccounts != nil {
+		return m.getAccounts(ctx, accessToken)
+	}
+	return nil, "", nil
 }
 
 func (m *mockPlaidClient) GetInstitutionName(ctx context.Context, institutionID string) (string, error) {
@@ -149,7 +157,7 @@ func newPlaidSvc(pc plaidclient.Client, plaidRepo *mockPlaidRepo, budgetRepo *mo
 			}
 			return usUser(), nil
 		},
-	}, testEncKey)
+	}, &mockTransactionRepo{}, testEncKey)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -165,7 +173,7 @@ func TestPlaid_CreateLinkToken_Success(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, budgetRepo, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, testEncKey)
+	}, &mockTransactionRepo{}, testEncKey)
 
 	result, err := svc.CreateLinkToken(context.Background(), user.ID, profileID)
 	require.NoError(t, err)
@@ -177,7 +185,7 @@ func TestPlaid_CreateLinkToken_NonUS_Forbidden(t *testing.T) {
 
 	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, testEncKey)
+	}, &mockTransactionRepo{}, testEncKey)
 
 	_, err := svc.CreateLinkToken(context.Background(), user.ID, uuid.New())
 	require.Error(t, err)
@@ -196,7 +204,7 @@ func TestPlaid_ExchangePublicToken_Success(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, budgetRepo, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, testEncKey)
+	}, &mockTransactionRepo{}, testEncKey)
 
 	item, err := svc.ExchangePublicToken(context.Background(), user.ID, profileID, "public-token-sandbox")
 	require.NoError(t, err)
@@ -221,7 +229,7 @@ func TestPlaid_Disconnect_Success(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, testEncKey)
+	}, &mockTransactionRepo{}, testEncKey)
 
 	err := svc.Disconnect(context.Background(), user.ID, connID)
 	require.NoError(t, err)
@@ -240,7 +248,7 @@ func TestPlaid_Disconnect_WrongUser_Forbidden(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, testEncKey)
+	}, &mockTransactionRepo{}, testEncKey)
 
 	err := svc.Disconnect(context.Background(), user.ID, connID)
 	require.Error(t, err)

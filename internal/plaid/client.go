@@ -8,14 +8,24 @@ import (
 	plaidSDK "github.com/plaid/plaid-go/v20/plaid"
 )
 
+// Account is a Plaid-linked bank account normalised for SpendSense.
+type Account struct {
+	PlaidAccountID string
+	Name           string
+	Mask           string // last 4 digits of account number; may be empty
+	Type           string // depository, credit, investment, loan, other
+	Subtype        string // checking, savings, credit card, etc.
+}
+
 // Transaction is a Plaid transaction normalised for import into SpendSense.
 type Transaction struct {
-	PlaidID      string
-	Name         string
-	Amount       float64 // positive = debit (spending), negative = credit (received)
-	Date         time.Time
-	PFCPrimary   string // personal_finance_category.primary (e.g. "FOOD_AND_DRINK")
-	PFCDetailed  string // personal_finance_category.detailed (e.g. "FOOD_AND_DRINK_GROCERIES")
+	PlaidID     string
+	AccountID   string  // Plaid account_id — links to Account.PlaidAccountID
+	Name        string
+	Amount      float64 // positive = debit (spending), negative = credit (received)
+	Date        time.Time
+	PFCPrimary  string // personal_finance_category.primary (e.g. "FOOD_AND_DRINK")
+	PFCDetailed string // personal_finance_category.detailed (e.g. "FOOD_AND_DRINK_GROCERIES")
 }
 
 // Client is a thin, mockable wrapper around the Plaid API.
@@ -28,6 +38,9 @@ type Client interface {
 	GetInstitutionName(ctx context.Context, institutionID string) (string, error)
 	// RemoveItem notifies Plaid that the item should be deauthorised.
 	RemoveItem(ctx context.Context, accessToken string) error
+	// GetAccounts returns all accounts linked to the access token and the
+	// Plaid institution ID (empty string if unavailable).
+	GetAccounts(ctx context.Context, accessToken string) (accounts []Account, institutionID string, err error)
 	// SyncTransactions fetches incremental transaction changes since cursor.
 	// Pass an empty cursor for the initial sync.
 	SyncTransactions(ctx context.Context, accessToken, cursor string) (added, modified []Transaction, removedIDs []string, nextCursor string, err error)
@@ -95,6 +108,39 @@ func (c *client) RemoveItem(ctx context.Context, accessToken string) error {
 	return nil
 }
 
+func (c *client) GetAccounts(ctx context.Context, accessToken string) ([]Account, string, error) {
+	req := plaidSDK.NewAccountsGetRequest(accessToken)
+	resp, _, err := c.api.PlaidApi.AccountsGet(ctx).AccountsGetRequest(*req).Execute()
+	if err != nil {
+		return nil, "", fmt.Errorf("plaid: get accounts: %w", err)
+	}
+
+	institutionID := ""
+	if id := resp.Item.GetInstitutionId(); id != "" {
+		institutionID = id
+	}
+
+	accounts := make([]Account, 0, len(resp.GetAccounts()))
+	for _, a := range resp.GetAccounts() {
+		mask := ""
+		if m, ok := a.GetMaskOk(); ok && m != nil {
+			mask = *m
+		}
+		subtype := ""
+		if st, ok := a.GetSubtypeOk(); ok && st != nil {
+			subtype = string(*st)
+		}
+		accounts = append(accounts, Account{
+			PlaidAccountID: a.GetAccountId(),
+			Name:           a.GetName(),
+			Mask:           mask,
+			Type:           string(a.GetType()),
+			Subtype:        subtype,
+		})
+	}
+	return accounts, institutionID, nil
+}
+
 func (c *client) SyncTransactions(ctx context.Context, accessToken, cursor string) ([]Transaction, []Transaction, []string, string, error) {
 	req := plaidSDK.NewTransactionsSyncRequest(accessToken)
 	if cursor != "" {
@@ -160,6 +206,7 @@ func toTransactions(ts []plaidSDK.Transaction) []Transaction {
 
 		out = append(out, Transaction{
 			PlaidID:     t.GetTransactionId(),
+			AccountID:   t.GetAccountId(),
 			Name:        name,
 			Amount:      t.GetAmount(),
 			Date:        d,

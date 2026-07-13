@@ -31,6 +31,7 @@ sql:
       - "internal/db/migrations/000026_fixed_expense_frequency_unit.sql"
       - "internal/db/migrations/000027_plaid.sql"
       - "internal/db/migrations/000028_plaid_transaction_id.sql"
+      - "internal/db/migrations/000029_payment_method_plaid_account.sql"
     gen:
       go:
         package: "db"

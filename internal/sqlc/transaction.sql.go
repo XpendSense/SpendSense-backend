@@ -50,7 +50,7 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 const createPaymentMethod = `-- name: CreatePaymentMethod :one
 INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, color)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
 `
 
 type CreatePaymentMethodParams struct {
@@ -78,6 +78,45 @@ func (q *Queries) CreatePaymentMethod(ctx context.Context, arg CreatePaymentMeth
 		&i.IsActive,
 		&i.BudgetPersonID,
 		&i.Color,
+		&i.PlaidAccountID,
+	)
+	return i, err
+}
+
+const createPaymentMethodFromPlaid = `-- name: CreatePaymentMethodFromPlaid :one
+INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, plaid_account_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
+`
+
+type CreatePaymentMethodFromPlaidParams struct {
+	Name           string     `json:"name"`
+	PaymentTypeID  *int32     `json:"payment_type_id"`
+	UserID         *uuid.UUID `json:"user_id"`
+	BudgetPersonID *int32     `json:"budget_person_id"`
+	PlaidAccountID *string    `json:"plaid_account_id"`
+}
+
+// Creates a payment method linked to a Plaid account. plaid_account_id is
+// stored so the sync job can route imported transactions to the right method.
+func (q *Queries) CreatePaymentMethodFromPlaid(ctx context.Context, arg CreatePaymentMethodFromPlaidParams) (PaymentMethod, error) {
+	row := q.db.QueryRow(ctx, createPaymentMethodFromPlaid,
+		arg.Name,
+		arg.PaymentTypeID,
+		arg.UserID,
+		arg.BudgetPersonID,
+		arg.PlaidAccountID,
+	)
+	var i PaymentMethod
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PaymentTypeID,
+		&i.UserID,
+		&i.IsActive,
+		&i.BudgetPersonID,
+		&i.Color,
+		&i.PlaidAccountID,
 	)
 	return i, err
 }
@@ -373,7 +412,7 @@ func (q *Queries) GetCategory(ctx context.Context, id int32) (GetCategoryRow, er
 }
 
 const getPaymentMethod = `-- name: GetPaymentMethod :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
 FROM payment_methods
 WHERE id = $1
 LIMIT 1
@@ -390,6 +429,30 @@ func (q *Queries) GetPaymentMethod(ctx context.Context, id uuid.UUID) (PaymentMe
 		&i.IsActive,
 		&i.BudgetPersonID,
 		&i.Color,
+		&i.PlaidAccountID,
+	)
+	return i, err
+}
+
+const getPaymentMethodByPlaidAccountID = `-- name: GetPaymentMethodByPlaidAccountID :one
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
+FROM payment_methods
+WHERE plaid_account_id = $1 AND is_active = TRUE
+LIMIT 1
+`
+
+func (q *Queries) GetPaymentMethodByPlaidAccountID(ctx context.Context, plaidAccountID *string) (PaymentMethod, error) {
+	row := q.db.QueryRow(ctx, getPaymentMethodByPlaidAccountID, plaidAccountID)
+	var i PaymentMethod
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.PaymentTypeID,
+		&i.UserID,
+		&i.IsActive,
+		&i.BudgetPersonID,
+		&i.Color,
+		&i.PlaidAccountID,
 	)
 	return i, err
 }
@@ -887,7 +950,7 @@ const updatePaymentMethod = `-- name: UpdatePaymentMethod :one
 UPDATE payment_methods
 SET name = $1, color = $2
 WHERE id = $3 AND user_id = $4::uuid
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
 `
 
 type UpdatePaymentMethodParams struct {
@@ -913,6 +976,7 @@ func (q *Queries) UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMeth
 		&i.IsActive,
 		&i.BudgetPersonID,
 		&i.Color,
+		&i.PlaidAccountID,
 	)
 	return i, err
 }

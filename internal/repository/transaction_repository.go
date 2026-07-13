@@ -40,6 +40,8 @@ type TransactionRepository interface {
 	ExistsTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (bool, error)
 	UpdateTransactionFromPlaid(ctx context.Context, arg db.UpdateTransactionFromPlaidParams) error
 	DeleteTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) error
+	CreatePaymentMethodFromPlaid(ctx context.Context, arg db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error)
+	GetPaymentMethodByPlaidAccountID(ctx context.Context, plaidAccountID string) (db.PaymentMethod, error)
 }
 
 type transactionRepository struct {
@@ -194,4 +196,16 @@ func (r *transactionRepository) UpdateTransactionFromPlaid(ctx context.Context, 
 
 func (r *transactionRepository) DeleteTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) error {
 	return r.q.DeleteTransactionByPlaidID(ctx, plaidTransactionID)
+}
+
+func (r *transactionRepository) CreatePaymentMethodFromPlaid(ctx context.Context, arg db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error) {
+	return r.q.CreatePaymentMethodFromPlaid(ctx, arg)
+}
+
+func (r *transactionRepository) GetPaymentMethodByPlaidAccountID(ctx context.Context, plaidAccountID string) (db.PaymentMethod, error) {
+	m, err := r.q.GetPaymentMethodByPlaidAccountID(ctx, &plaidAccountID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.PaymentMethod{}, apperr.NotFound("payment_method", plaidAccountID)
+	}
+	return m, err
 }

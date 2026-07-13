@@ -152,7 +152,7 @@ WHERE category.id = sqlc.arg('id') AND category.user_id = sqlc.arg('user_id')::u
 SELECT id, name FROM category WHERE is_system = TRUE ORDER BY name;
 
 -- name: GetPaymentMethod :one
-SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
 FROM payment_methods
 WHERE id = $1
 LIMIT 1;
@@ -170,13 +170,13 @@ ORDER BY pm.name;
 -- name: CreatePaymentMethod :one
 INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, color)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color;
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id;
 
 -- name: UpdatePaymentMethod :one
 UPDATE payment_methods
 SET name = sqlc.arg('name'), color = sqlc.arg('color')
 WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')::uuid
-RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color;
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id;
 
 -- Reassigns all transactions referencing this method within the profile's periods, then soft-deletes.
 -- name: DeletePaymentMethodAndReassign :exec
@@ -190,6 +190,19 @@ WITH moved AS (
 UPDATE payment_methods
 SET is_active = FALSE
 WHERE payment_methods.id = sqlc.arg('id')::uuid AND payment_methods.user_id = sqlc.arg('user_id')::uuid;
+
+-- Creates a payment method linked to a Plaid account. plaid_account_id is
+-- stored so the sync job can route imported transactions to the right method.
+-- name: CreatePaymentMethodFromPlaid :one
+INSERT INTO payment_methods (name, payment_type_id, user_id, budget_person_id, plaid_account_id)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id;
+
+-- name: GetPaymentMethodByPlaidAccountID :one
+SELECT id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
+FROM payment_methods
+WHERE plaid_account_id = $1 AND is_active = TRUE
+LIMIT 1;
 
 -- name: ListTransactionTypes :many
 SELECT id, name FROM transaction_type ORDER BY id;
