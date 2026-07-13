@@ -762,6 +762,42 @@ func (h *BudgetHandler) DismissTransactionReview(ctx context.Context, req *conne
 	return connect.NewResponse(&v1.DismissTransactionReviewResponse{}), nil
 }
 
+func (h *BudgetHandler) MarkTransactionForReview(ctx context.Context, req *connect.Request[v1.MarkTransactionForReviewRequest]) (*connect.Response[v1.MarkTransactionForReviewResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	txID, err := uuid.Parse(req.Msg.TransactionId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	feID, err := uuid.Parse(req.Msg.FixedExpenseId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	profileID, err := uuid.Parse(req.Msg.BudgetProfileId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	review, svcErr := h.transactions.MarkTransactionForReview(ctx, userID, txID, feID, profileID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	scoreF8, _ := review.MatchScore.Float64Value()
+	protoReview := &v1.TransactionReview{
+		Id:             review.ID.String(),
+		BudgetPeriodId: review.BudgetPeriodID.String(),
+		TransactionId:  review.TransactionID.String(),
+		FixedExpenseId: review.FixedExpenseID.String(),
+		MatchScore:     scoreF8.Float64,
+		Status:         string(review.Status),
+	}
+	if review.CreatedAt.Valid {
+		protoReview.CreatedAt = timestamppb.New(review.CreatedAt.Time)
+	}
+	return connect.NewResponse(&v1.MarkTransactionForReviewResponse{Review: protoReview}), nil
+}
+
 func toProtoExpenseAllocation(a db.ExpenseAllocation) *v1.ExpenseAllocation {
 	var personID int64
 	if a.BudgetPersonID != nil {
