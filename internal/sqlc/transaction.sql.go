@@ -90,7 +90,7 @@ INSERT INTO transaction (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
 `
 
 type CreateTransactionParams struct {
@@ -140,6 +140,74 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.IsPaid,
 		&i.PaidDate,
 		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
+	)
+	return i, err
+}
+
+const createTransactionFromPlaid = `-- name: CreateTransactionFromPlaid :one
+
+INSERT INTO transaction (
+    name, amount, planned_amount, date, renewal_date, recurring,
+    budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+    fixed_expense_id, plaid_transaction_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+`
+
+type CreateTransactionFromPlaidParams struct {
+	Name                   *string        `json:"name"`
+	Amount                 pgtype.Numeric `json:"amount"`
+	PlannedAmount          pgtype.Numeric `json:"planned_amount"`
+	Date                   pgtype.Date    `json:"date"`
+	RenewalDate            pgtype.Date    `json:"renewal_date"`
+	Recurring              *bool          `json:"recurring"`
+	BudgetPeriodID         *uuid.UUID     `json:"budget_period_id"`
+	CategoryID             *int32         `json:"category_id"`
+	PaymentMethodID        *uuid.UUID     `json:"payment_method_id"`
+	TransactionFrequencyID *int32         `json:"transaction_frequency_id"`
+	TransactionTypeID      *int32         `json:"transaction_type_id"`
+	FixedExpenseID         *uuid.UUID     `json:"fixed_expense_id"`
+	PlaidTransactionID     *string        `json:"plaid_transaction_id"`
+}
+
+// ── Plaid ─────────────────────────────────────────────────────────────────────
+func (q *Queries) CreateTransactionFromPlaid(ctx context.Context, arg CreateTransactionFromPlaidParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, createTransactionFromPlaid,
+		arg.Name,
+		arg.Amount,
+		arg.PlannedAmount,
+		arg.Date,
+		arg.RenewalDate,
+		arg.Recurring,
+		arg.BudgetPeriodID,
+		arg.CategoryID,
+		arg.PaymentMethodID,
+		arg.TransactionFrequencyID,
+		arg.TransactionTypeID,
+		arg.FixedExpenseID,
+		arg.PlaidTransactionID,
+	)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Amount,
+		&i.PlannedAmount,
+		&i.Date,
+		&i.RenewalDate,
+		&i.Recurring,
+		&i.BudgetPeriodID,
+		&i.CategoryID,
+		&i.PaymentMethodID,
+		&i.TransactionFrequencyID,
+		&i.TransactionTypeID,
+		&i.IsPaid,
+		&i.PaidDate,
+		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
 	)
 	return i, err
 }
@@ -251,6 +319,29 @@ func (q *Queries) DeleteTransaction(ctx context.Context, arg DeleteTransactionPa
 	return err
 }
 
+const deleteTransactionByPlaidID = `-- name: DeleteTransactionByPlaidID :exec
+DELETE FROM transaction
+WHERE plaid_transaction_id = $1
+`
+
+func (q *Queries) DeleteTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) error {
+	_, err := q.db.Exec(ctx, deleteTransactionByPlaidID, plaidTransactionID)
+	return err
+}
+
+const existsTransactionByPlaidID = `-- name: ExistsTransactionByPlaidID :one
+SELECT EXISTS (
+    SELECT 1 FROM transaction WHERE plaid_transaction_id = $1
+) AS exists
+`
+
+func (q *Queries) ExistsTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (bool, error) {
+	row := q.db.QueryRow(ctx, existsTransactionByPlaidID, plaidTransactionID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const getCategory = `-- name: GetCategory :one
 SELECT id, name, type_id, is_system, user_id, color
 FROM category
@@ -306,7 +397,7 @@ func (q *Queries) GetPaymentMethod(ctx context.Context, id uuid.UUID) (PaymentMe
 const getTransactionByID = `-- name: GetTransactionByID :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
 FROM transaction
 WHERE id = $1
 LIMIT 1
@@ -331,6 +422,40 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 		&i.IsPaid,
 		&i.PaidDate,
 		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
+	)
+	return i, err
+}
+
+const getTransactionByPlaidID = `-- name: GetTransactionByPlaidID :one
+SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
+       budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+FROM transaction
+WHERE plaid_transaction_id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (Transaction, error) {
+	row := q.db.QueryRow(ctx, getTransactionByPlaidID, plaidTransactionID)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Amount,
+		&i.PlannedAmount,
+		&i.Date,
+		&i.RenewalDate,
+		&i.Recurring,
+		&i.BudgetPeriodID,
+		&i.CategoryID,
+		&i.PaymentMethodID,
+		&i.TransactionFrequencyID,
+		&i.TransactionTypeID,
+		&i.IsPaid,
+		&i.PaidDate,
+		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
 	)
 	return i, err
 }
@@ -545,7 +670,7 @@ func (q *Queries) ListTransactionTypes(ctx context.Context) ([]TransactionType, 
 const listTransactions = `-- name: ListTransactions :many
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
 FROM transaction
 WHERE budget_period_id = $1::uuid
   AND ($2::int IS NULL OR category_id = $2)
@@ -584,6 +709,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.IsPaid,
 			&i.PaidDate,
 			&i.FixedExpenseID,
+			&i.PlaidTransactionID,
 		); err != nil {
 			return nil, err
 		}
@@ -604,7 +730,7 @@ WHERE id = $3::uuid
   AND budget_period_id = $4::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
 `
 
 type MarkTransactionAsPaidParams struct {
@@ -638,6 +764,7 @@ func (q *Queries) MarkTransactionAsPaid(ctx context.Context, arg MarkTransaction
 		&i.IsPaid,
 		&i.PaidDate,
 		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
 	)
 	return i, err
 }
@@ -651,7 +778,7 @@ WHERE id = $1::uuid
   AND budget_period_id = $2::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
 `
 
 type UnmarkTransactionAsPaidParams struct {
@@ -678,6 +805,7 @@ func (q *Queries) UnmarkTransactionAsPaid(ctx context.Context, arg UnmarkTransac
 		&i.IsPaid,
 		&i.PaidDate,
 		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
 	)
 	return i, err
 }
@@ -800,7 +928,7 @@ SET name = $2, amount = $3, planned_amount = $4, date = $5, recurring = $6,
 WHERE id = $1
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
 `
 
 type UpdateTransactionParams struct {
@@ -846,6 +974,25 @@ func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionPa
 		&i.IsPaid,
 		&i.PaidDate,
 		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
 	)
 	return i, err
+}
+
+const updateTransactionFromPlaid = `-- name: UpdateTransactionFromPlaid :exec
+UPDATE transaction
+SET name = $2, amount = $3
+WHERE plaid_transaction_id = $1
+`
+
+type UpdateTransactionFromPlaidParams struct {
+	PlaidTransactionID *string        `json:"plaid_transaction_id"`
+	Name               *string        `json:"name"`
+	Amount             pgtype.Numeric `json:"amount"`
+}
+
+// Updates name and amount for a Plaid-imported transaction.
+func (q *Queries) UpdateTransactionFromPlaid(ctx context.Context, arg UpdateTransactionFromPlaidParams) error {
+	_, err := q.db.Exec(ctx, updateTransactionFromPlaid, arg.PlaidTransactionID, arg.Name, arg.Amount)
+	return err
 }

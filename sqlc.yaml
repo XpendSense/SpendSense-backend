@@ -29,6 +29,8 @@ sql:
       - "internal/db/migrations/000024_fixed_expense_interval.sql"
       - "internal/db/migrations/000025_fixed_expense_anchor_date.sql"
       - "internal/db/migrations/000026_fixed_expense_frequency_unit.sql"
+      - "internal/db/migrations/000027_plaid.sql"
+      - "internal/db/migrations/000028_plaid_transaction_id.sql"
     gen:
       go:
         package: "db"

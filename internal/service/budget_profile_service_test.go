@@ -292,6 +292,10 @@ func (m *mockBudgetProfileRepo) DeleteTaxReserveSavingsSource(ctx context.Contex
 	return nil
 }
 
+func (m *mockBudgetProfileRepo) GetPeriodByDate(ctx context.Context, profileID uuid.UUID, date pgtype.Date) (db.BudgetPeriod, error) {
+	return db.BudgetPeriod{}, apperr.NotFound("budget_period", "date")
+}
+
 // ── BudgetProfileService tests ────────────────────────────────────────────────
 
 func TestCreateBudgetProfile_Success(t *testing.T) {

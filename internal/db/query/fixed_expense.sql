@@ -60,7 +60,7 @@ WHERE id = sqlc.arg('id')::uuid
 -- name: GetUnpaidTransactionByFixedExpense :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
 FROM transaction
 WHERE fixed_expense_id = sqlc.arg('fixed_expense_id')::uuid
   AND is_paid = FALSE

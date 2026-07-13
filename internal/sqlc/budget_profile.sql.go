@@ -342,6 +342,37 @@ func (q *Queries) ExistsBudgetProfileByNameAndUser(ctx context.Context, arg Exis
 	return exists, err
 }
 
+const getBudgetPeriodByDate = `-- name: GetBudgetPeriodByDate :one
+SELECT id, budget_profile_id, start_date, end_date, is_archived, created_at
+FROM budget_period
+WHERE budget_profile_id = $1
+  AND start_date <= $2::date
+  AND end_date >= $2::date
+ORDER BY start_date DESC
+LIMIT 1
+`
+
+type GetBudgetPeriodByDateParams struct {
+	BudgetProfileID uuid.UUID   `json:"budget_profile_id"`
+	Column2         pgtype.Date `json:"column_2"`
+}
+
+// Returns the budget period containing a given date for a specific profile.
+// Used by the Plaid sync job to route imported transactions to the right period.
+func (q *Queries) GetBudgetPeriodByDate(ctx context.Context, arg GetBudgetPeriodByDateParams) (BudgetPeriod, error) {
+	row := q.db.QueryRow(ctx, getBudgetPeriodByDate, arg.BudgetProfileID, arg.Column2)
+	var i BudgetPeriod
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetProfileID,
+		&i.StartDate,
+		&i.EndDate,
+		&i.IsArchived,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getBudgetPeriodByID = `-- name: GetBudgetPeriodByID :one
 SELECT id, budget_profile_id, start_date, end_date, is_archived, created_at
 FROM budget_period

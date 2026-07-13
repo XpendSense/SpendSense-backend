@@ -178,7 +178,7 @@ func (q *Queries) GetFixedExpense(ctx context.Context, id uuid.UUID) (FixedExpen
 const getUnpaidTransactionByFixedExpense = `-- name: GetUnpaidTransactionByFixedExpense :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
 FROM transaction
 WHERE fixed_expense_id = $1::uuid
   AND is_paid = FALSE
@@ -215,6 +215,7 @@ func (q *Queries) GetUnpaidTransactionByFixedExpense(ctx context.Context, arg Ge
 		&i.IsPaid,
 		&i.PaidDate,
 		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
 	)
 	return i, err
 }

@@ -1,0 +1,166 @@
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/mauro-afa91/spendsense/internal/db"
+	plaidclient "github.com/mauro-afa91/spendsense/internal/plaid"
+	"github.com/mauro-afa91/spendsense/internal/repository"
+	sqlcdb "github.com/mauro-afa91/spendsense/internal/sqlc"
+)
+
+// plaid-sync fetches incremental transaction changes from Plaid for every active
+// plaid_item that has not been synced in the last 3 days, then writes new/updated/
+// removed Variable transactions into the matching budget period.
+func main() {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("DATABASE_URL is required")
+	}
+	clientID := os.Getenv("PLAID_CLIENT_ID")
+	secret := os.Getenv("PLAID_SECRET")
+	plaidEnv := os.Getenv("PLAID_ENV")
+	if clientID == "" || secret == "" {
+		log.Fatal("PLAID_CLIENT_ID and PLAID_SECRET are required")
+	}
+	if plaidEnv == "" {
+		plaidEnv = "sandbox"
+	}
+
+	ctx := context.Background()
+	pool, err := db.NewPool(ctx, dbURL)
+	if err != nil {
+		log.Fatalf("db: %v", err)
+	}
+	defer pool.Close()
+
+	queries := sqlcdb.New(pool)
+	plaidRepo := repository.NewPlaidRepository(queries)
+	budgetRepo := repository.NewBudgetProfileRepository(queries)
+	txRepo := repository.NewTransactionRepository(queries)
+
+	pc, err := plaidclient.New(clientID, secret, plaidEnv)
+	if err != nil {
+		log.Fatalf("plaid: init client: %v", err)
+	}
+
+	items, err := plaidRepo.ListActiveForSync(ctx)
+	if err != nil {
+		log.Fatalf("list active items: %v", err)
+	}
+
+	log.Printf("syncing %d plaid items", len(items))
+
+	for _, item := range items {
+		cursor := ""
+		if item.Cursor != nil {
+			cursor = *item.Cursor
+		}
+
+		added, modified, removedIDs, nextCursor, err := pc.SyncTransactions(ctx, item.AccessToken, cursor)
+		if err != nil {
+			log.Printf("item %s: sync error: %v — marking error", item.ID, err)
+			_, _ = plaidRepo.UpdateStatus(ctx, sqlcdb.UpdatePlaidItemStatusParams{
+				ID:     item.ID,
+				Status: "error",
+			})
+			continue
+		}
+
+		// Variable transaction type ID = 2 (seeded in 000001_init_schema.sql).
+		// One-off frequency ID = 1.
+		const variableTypeID = 2
+		const oneOffFreqID = 1
+
+		importedAdded := 0
+		for _, tx := range added {
+			date := pgtype.Date{Time: tx.Date, Valid: true}
+
+			period, err := budgetRepo.GetPeriodByDate(ctx, item.BudgetProfileID, date)
+			if err != nil {
+				// No budget period covers this date — skip silently.
+				continue
+			}
+
+			exists, err := txRepo.ExistsTransactionByPlaidID(ctx, &tx.PlaidID)
+			if err != nil || exists {
+				continue
+			}
+
+			amount := amountToNumeric(tx.Amount)
+			plaidID := tx.PlaidID
+
+			periodID := period.ID
+			_, err = txRepo.CreateTransactionFromPlaid(ctx, sqlcdb.CreateTransactionFromPlaidParams{
+				Name:                   &tx.Name,
+				Amount:                 amount,
+				PlannedAmount:          amount,
+				Date:                   date,
+				Recurring:              boolPtr(false),
+				BudgetPeriodID:         &periodID,
+				TransactionFrequencyID: int32Ptr(oneOffFreqID),
+				TransactionTypeID:      int32Ptr(variableTypeID),
+				PlaidTransactionID:     &plaidID,
+			})
+			if err != nil {
+				log.Printf("item %s: insert tx %s: %v", item.ID, tx.PlaidID, err)
+				continue
+			}
+			importedAdded++
+		}
+
+		for _, tx := range modified {
+			amount := amountToNumeric(tx.Amount)
+			if err := txRepo.UpdateTransactionFromPlaid(ctx, sqlcdb.UpdateTransactionFromPlaidParams{
+				PlaidTransactionID: &tx.PlaidID,
+				Name:               &tx.Name,
+				Amount:             amount,
+			}); err != nil {
+				log.Printf("item %s: update tx %s: %v", item.ID, tx.PlaidID, err)
+			}
+		}
+
+		for _, pid := range removedIDs {
+			if err := txRepo.DeleteTransactionByPlaidID(ctx, &pid); err != nil {
+				log.Printf("item %s: delete tx %s: %v", item.ID, pid, err)
+			}
+		}
+
+		_, err = plaidRepo.UpdateSync(ctx, sqlcdb.UpdatePlaidItemSyncParams{
+			ID:     item.ID,
+			Cursor: &nextCursor,
+		})
+		if err != nil {
+			log.Printf("item %s: update cursor: %v", item.ID, err)
+		}
+
+		log.Printf("item %s (%s): +%d added, %d modified, %d removed",
+			item.ID, strconv.Quote(nullStr(item.InstitutionName)),
+			importedAdded, len(modified), len(removedIDs))
+	}
+}
+
+func amountToNumeric(f float64) pgtype.Numeric {
+	s := strconv.FormatFloat(f, 'f', 4, 64)
+	var n pgtype.Numeric
+	_ = n.Scan(s)
+	return n
+}
+
+func boolPtr(b bool) *bool      { return &b }
+func int32Ptr(i int32) *int32   { return &i }
+func nullStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func init() {
+	_ = time.Now() // ensure time import is used
+}

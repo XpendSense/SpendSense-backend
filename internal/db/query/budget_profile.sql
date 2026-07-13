@@ -67,6 +67,17 @@ WHERE budget_profile_id = $1
 ORDER BY start_date DESC
 LIMIT 1;
 
+-- Returns the budget period containing a given date for a specific profile.
+-- Used by the Plaid sync job to route imported transactions to the right period.
+-- name: GetBudgetPeriodByDate :one
+SELECT id, budget_profile_id, start_date, end_date, is_archived, created_at
+FROM budget_period
+WHERE budget_profile_id = $1
+  AND start_date <= $2::date
+  AND end_date >= $2::date
+ORDER BY start_date DESC
+LIMIT 1;
+
 -- Used by the cycling job to find profiles whose current period just ended.
 -- name: ListProfileIDsWithLatestPeriodEndingOn :many
 SELECT budget_profile_id

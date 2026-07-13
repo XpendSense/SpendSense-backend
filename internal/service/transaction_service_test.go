@@ -275,6 +275,22 @@ func (m *mockTransactionRepo) UnmarkAsPaid(ctx context.Context, arg db.UnmarkTra
 	return db.Transaction{}, nil
 }
 
+func (m *mockTransactionRepo) CreateTransactionFromPlaid(ctx context.Context, arg db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+	return db.Transaction{}, nil
+}
+
+func (m *mockTransactionRepo) ExistsTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockTransactionRepo) UpdateTransactionFromPlaid(ctx context.Context, arg db.UpdateTransactionFromPlaidParams) error {
+	return nil
+}
+
+func (m *mockTransactionRepo) DeleteTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) error {
+	return nil
+}
+
 // ── UpdatePaymentMethod tests ─────────────────────────────────────────────────
 
 func TestUpdatePaymentMethod_Success(t *testing.T) {

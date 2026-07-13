@@ -31,6 +31,7 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
+	github.com/plaid/plaid-go/v20 v20.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/pressly/goose/v3 v3.27.1 // indirect
 	github.com/resend/resend-go/v2 v2.28.0 // indirect

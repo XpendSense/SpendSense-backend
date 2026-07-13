@@ -17,6 +17,7 @@ import (
 	"github.com/mauro-afa91/spendsense/internal/db"
 	"github.com/mauro-afa91/spendsense/internal/handler"
 	"github.com/mauro-afa91/spendsense/internal/middleware"
+	plaidclient "github.com/mauro-afa91/spendsense/internal/plaid"
 	"github.com/mauro-afa91/spendsense/internal/repository"
 	"github.com/mauro-afa91/spendsense/internal/service"
 	sqlcdb "github.com/mauro-afa91/spendsense/internal/sqlc"
@@ -53,6 +54,7 @@ func main() {
 	allocationRepo := repository.NewExpenseAllocationRepository(queries)
 	fixedExpenseRepo := repository.NewFixedExpenseRepository(queries)
 	inviteRepo := repository.NewInviteRepository(queries)
+	plaidRepo := repository.NewPlaidRepository(queries)
 
 	// Auth
 	jwtSvc := auth.NewJWTService(cfg.JWTSecret)
@@ -65,6 +67,15 @@ func main() {
 	transactionSvc := service.NewTransactionService(transactionRepo, budgetProfileRepo, allocationRepo, fixedExpenseRepo)
 	allocationSvc := service.NewExpenseAllocationService(allocationRepo, budgetProfileRepo)
 	inviteSvc := service.NewInviteService(inviteRepo, budgetProfileRepo, userRepo, cfg, logger)
+
+	var plaidSvc *service.PlaidService
+	if cfg.PlaidClientID != "" && cfg.PlaidSecret != "" {
+		pc, pcErr := plaidclient.New(cfg.PlaidClientID, cfg.PlaidSecret, cfg.PlaidEnv)
+		if pcErr != nil {
+			log.Fatalf("plaid: init client: %v", pcErr)
+		}
+		plaidSvc = service.NewPlaidService(pc, plaidRepo, budgetProfileRepo, userRepo)
+	}
 
 	// Procedures that don't require authentication
 	bypass := map[string]bool{
@@ -86,6 +97,9 @@ func main() {
 	mux.Handle(spendsensev1connect.NewUserServiceHandler(handler.NewUserHandler(userSvc), interceptors))
 	mux.Handle(spendsensev1connect.NewBudgetServiceHandler(handler.NewBudgetHandler(profileSvc, transactionSvc, allocationSvc), interceptors))
 	mux.Handle(spendsensev1connect.NewInviteServiceHandler(handler.NewInviteHandler(inviteSvc), interceptors))
+	if plaidSvc != nil {
+		mux.Handle(spendsensev1connect.NewPlaidServiceHandler(handler.NewPlaidHandler(plaidSvc), interceptors))
+	}
 
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins:   cfg.CORSAllowedOrigins,

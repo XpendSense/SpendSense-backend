@@ -149,6 +149,20 @@ type PaymentType struct {
 	Name string `json:"name"`
 }
 
+type PlaidItem struct {
+	ID              uuid.UUID          `json:"id"`
+	UserID          uuid.UUID          `json:"user_id"`
+	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
+	AccessToken     string             `json:"access_token"`
+	ItemID          string             `json:"item_id"`
+	InstitutionID   *string            `json:"institution_id"`
+	InstitutionName *string            `json:"institution_name"`
+	Status          string             `json:"status"`
+	Cursor          *string            `json:"cursor"`
+	LastSyncedAt    pgtype.Timestamptz `json:"last_synced_at"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
 type SavingsSource struct {
 	ID              int32              `json:"id"`
 	BudgetProfileID uuid.UUID          `json:"budget_profile_id"`
@@ -180,6 +194,7 @@ type Transaction struct {
 	IsPaid                 bool           `json:"is_paid"`
 	PaidDate               pgtype.Date    `json:"paid_date"`
 	FixedExpenseID         *uuid.UUID     `json:"fixed_expense_id"`
+	PlaidTransactionID     *string        `json:"plaid_transaction_id"`
 }
 
 type TransactionFrequency struct {

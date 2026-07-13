@@ -34,6 +34,12 @@ type TransactionRepository interface {
 	UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error)
 	DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error
 	DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error
+
+	// Plaid
+	CreateTransactionFromPlaid(ctx context.Context, arg db.CreateTransactionFromPlaidParams) (db.Transaction, error)
+	ExistsTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (bool, error)
+	UpdateTransactionFromPlaid(ctx context.Context, arg db.UpdateTransactionFromPlaidParams) error
+	DeleteTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) error
 }
 
 type transactionRepository struct {
@@ -172,4 +178,20 @@ func (r *transactionRepository) DeletePaymentMethodAndReassign(ctx context.Conte
 
 func (r *transactionRepository) DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error {
 	return r.q.DeleteSavingsSourceTransactions(ctx, arg)
+}
+
+func (r *transactionRepository) CreateTransactionFromPlaid(ctx context.Context, arg db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+	return r.q.CreateTransactionFromPlaid(ctx, arg)
+}
+
+func (r *transactionRepository) ExistsTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (bool, error) {
+	return r.q.ExistsTransactionByPlaidID(ctx, plaidTransactionID)
+}
+
+func (r *transactionRepository) UpdateTransactionFromPlaid(ctx context.Context, arg db.UpdateTransactionFromPlaidParams) error {
+	return r.q.UpdateTransactionFromPlaid(ctx, arg)
+}
+
+func (r *transactionRepository) DeleteTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) error {
+	return r.q.DeleteTransactionByPlaidID(ctx, plaidTransactionID)
 }

@@ -21,6 +21,9 @@ type Config struct {
 	ResendAPIKey       string   `envconfig:"RESEND_API_KEY"`
 	ResendFromEmail    string   `envconfig:"RESEND_FROM_EMAIL" default:"WellSpent <noreply@spendsense.app>"`
 	FrontendURL        string   `envconfig:"FRONTEND_URL" default:"http://localhost:3000"`
+	PlaidClientID      string   `envconfig:"PLAID_CLIENT_ID"`
+	PlaidSecret        string   `envconfig:"PLAID_SECRET"`
+	PlaidEnv           string   `envconfig:"PLAID_ENV" default:"sandbox"`
 }
 
 func Load() (*Config, error) {
