@@ -8,7 +8,7 @@ WHERE budget_period_id = sqlc.arg('budget_period_id')::uuid
   AND (sqlc.narg('transaction_type_id')::int IS NULL OR transaction_type_id = sqlc.narg('transaction_type_id'))
   AND NOT EXISTS (
     SELECT 1 FROM transaction_review tr
-    WHERE tr.transaction_id = id AND tr.status = 'confirmed'
+    WHERE tr.transaction_id = transaction.id AND tr.status = 'confirmed'
   )
 ORDER BY date DESC NULLS LAST;
 
