@@ -803,7 +803,7 @@ WHERE budget_period_id = $1::uuid
   AND ($3::int IS NULL OR transaction_type_id = $3)
   AND NOT EXISTS (
     SELECT 1 FROM transaction_review tr
-    WHERE tr.transaction_id = id AND tr.status = 'confirmed'
+    WHERE tr.transaction_id = transaction.id AND tr.status = 'confirmed'
   )
 ORDER BY date DESC NULLS LAST
 `
