@@ -179,7 +179,17 @@ RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color
 -- name: UpdatePaymentMethod :one
 UPDATE payment_methods
 SET name = sqlc.arg('name'), color = sqlc.arg('color')
-WHERE id = sqlc.arg('id') AND user_id = sqlc.arg('user_id')::uuid
+WHERE payment_methods.id = sqlc.arg('id')
+  AND (
+    payment_methods.user_id = sqlc.arg('user_id')::uuid
+    OR payment_methods.budget_person_id IN (
+      SELECT bpm.id FROM budget_to_profile_mapping bpm
+      JOIN budget_to_profile_mapping requester ON requester.budget_profile_id = bpm.budget_profile_id
+      WHERE requester.user_id = sqlc.arg('user_id')::uuid
+        AND requester.is_active = TRUE
+        AND bpm.is_active = TRUE
+    )
+  )
 RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id;
 
 -- Reassigns all transactions and savings sources referencing this method, then soft-deletes.

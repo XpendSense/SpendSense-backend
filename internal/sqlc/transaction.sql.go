@@ -985,7 +985,17 @@ func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) 
 const updatePaymentMethod = `-- name: UpdatePaymentMethod :one
 UPDATE payment_methods
 SET name = $1, color = $2
-WHERE id = $3 AND user_id = $4::uuid
+WHERE payment_methods.id = $3
+  AND (
+    payment_methods.user_id = $4::uuid
+    OR payment_methods.budget_person_id IN (
+      SELECT bpm.id FROM budget_to_profile_mapping bpm
+      JOIN budget_to_profile_mapping requester ON requester.budget_profile_id = bpm.budget_profile_id
+      WHERE requester.user_id = $4::uuid
+        AND requester.is_active = TRUE
+        AND bpm.is_active = TRUE
+    )
+  )
 RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
 `
 
