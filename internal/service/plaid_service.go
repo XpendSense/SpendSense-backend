@@ -19,6 +19,8 @@ type PlaidService struct {
 	budgets       repository.BudgetProfileRepository
 	users         repository.UserRepository
 	transactions  repository.TransactionRepository
+	fixedExpenses repository.FixedExpenseRepository
+	reviews       repository.TransactionReviewRepository
 	encryptionKey string
 }
 
@@ -28,6 +30,8 @@ func NewPlaidService(
 	budgets repository.BudgetProfileRepository,
 	users repository.UserRepository,
 	transactions repository.TransactionRepository,
+	fixedExpenses repository.FixedExpenseRepository,
+	reviews repository.TransactionReviewRepository,
 	encryptionKey string,
 ) *PlaidService {
 	return &PlaidService{
@@ -36,6 +40,8 @@ func NewPlaidService(
 		budgets:       budgets,
 		users:         users,
 		transactions:  transactions,
+		fixedExpenses: fixedExpenses,
+		reviews:       reviews,
 		encryptionKey: encryptionKey,
 	}
 }
@@ -182,6 +188,13 @@ func (s *PlaidService) ExchangePublicToken(ctx context.Context, userID, profileI
 	} else {
 		log.Printf("plaid: no payment methods created for user %s", userID)
 	}
+
+	// Trigger an immediate sync so transactions appear right after connecting.
+	go func() {
+		if err := s.SyncItem(context.Background(), item); err != nil {
+			log.Printf("plaid: initial sync for item %s: %v", item.ID, err)
+		}
+	}()
 
 	return item, nil
 }

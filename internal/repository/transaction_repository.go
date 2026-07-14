@@ -35,6 +35,8 @@ type TransactionRepository interface {
 	DeletePaymentMethodAndReassign(ctx context.Context, arg db.DeletePaymentMethodAndReassignParams) error
 	DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error
 
+	ListSystemCategories(ctx context.Context) (map[string]int32, error)
+
 	// Plaid
 	CreateTransactionFromPlaid(ctx context.Context, arg db.CreateTransactionFromPlaidParams) (db.Transaction, error)
 	ExistsTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (bool, error)
@@ -182,6 +184,18 @@ func (r *transactionRepository) DeletePaymentMethodAndReassign(ctx context.Conte
 
 func (r *transactionRepository) DeleteSavingsSourceTransactions(ctx context.Context, arg db.DeleteSavingsSourceTransactionsParams) error {
 	return r.q.DeleteSavingsSourceTransactions(ctx, arg)
+}
+
+func (r *transactionRepository) ListSystemCategories(ctx context.Context) (map[string]int32, error) {
+	rows, err := r.q.ListSystemCategories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]int32, len(rows))
+	for _, row := range rows {
+		m[row.Name] = row.ID
+	}
+	return m, nil
 }
 
 func (r *transactionRepository) CreateTransactionFromPlaid(ctx context.Context, arg db.CreateTransactionFromPlaidParams) (db.Transaction, error) {

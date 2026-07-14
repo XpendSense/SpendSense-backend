@@ -3,17 +3,12 @@ package main
 import (
 	"context"
 	"log"
-	"math"
 	"os"
-	"strconv"
-	"strings"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/mauro-afa91/spendsense/internal/crypto"
 	"github.com/mauro-afa91/spendsense/internal/db"
 	plaidclient "github.com/mauro-afa91/spendsense/internal/plaid"
 	"github.com/mauro-afa91/spendsense/internal/repository"
+	"github.com/mauro-afa91/spendsense/internal/service"
 	sqlcdb "github.com/mauro-afa91/spendsense/internal/sqlc"
 )
 
@@ -53,17 +48,12 @@ func main() {
 	feRepo := repository.NewFixedExpenseRepository(queries)
 	reviewRepo := repository.NewTransactionReviewRepository(queries)
 
-	// Pre-load system category IDs once — used by every transaction import.
-	categoryIDs, err := loadCategoryIDs(ctx, queries)
-	if err != nil {
-		log.Fatalf("load system categories: %v", err)
-	}
-	log.Printf("loaded %d system categories", len(categoryIDs))
-
 	pc, err := plaidclient.New(clientID, secret, plaidEnv)
 	if err != nil {
 		log.Fatalf("plaid: init client: %v", err)
 	}
+
+	svc := service.NewPlaidService(pc, plaidRepo, budgetRepo, nil, txRepo, feRepo, reviewRepo, encryptionKey)
 
 	items, err := plaidRepo.ListActiveForSync(ctx)
 	if err != nil {
@@ -73,297 +63,8 @@ func main() {
 	log.Printf("syncing %d plaid items", len(items))
 
 	for _, item := range items {
-		log.Printf("item %s: starting sync (user %s, budget %s)", item.ID, item.UserID, item.BudgetProfileID)
-
-		cursor := ""
-		if item.Cursor != nil {
-			cursor = *item.Cursor
-		}
-		isFirstSync := cursor == ""
-
-		accessToken, err := crypto.Decrypt(item.AccessToken, encryptionKey)
-		if err != nil {
-			log.Printf("item %s: decrypt access token: %v — skipping", item.ID, err)
-			continue
-		}
-
-		added, modified, removedIDs, nextCursor, err := pc.SyncTransactions(ctx, accessToken, cursor)
-		if err != nil {
-			log.Printf("item %s: sync error: %v — marking error", item.ID, err)
-			_, _ = plaidRepo.UpdateStatus(ctx, sqlcdb.UpdatePlaidItemStatusParams{
-				ID:     item.ID,
-				Status: "error",
-			})
-			continue
-		}
-
-		log.Printf("item %s: plaid returned %d added, %d modified, %d removed (first_sync=%v)",
-			item.ID, len(added), len(modified), len(removedIDs), isFirstSync)
-
-		// Variable transaction type ID = 2 (seeded in 000001_init_schema.sql).
-		// One-off frequency ID = 1.
-		const variableTypeID = 2
-		const oneOffFreqID = 1
-
-		// Cache plaid_account_id → payment_method_id for this item's sync run.
-		pmCache := map[string]*uuid.UUID{}
-
-		// Pre-load active fixed expenses once per item for match scoring, along
-		// with each one's registered aliases (used as a strong name-match signal).
-		fixedExpenses, _ := feRepo.List(ctx, item.BudgetProfileID)
-		aliasesByFE := make(map[uuid.UUID][]string, len(fixedExpenses))
-		for _, fe := range fixedExpenses {
-			aliases, _ := reviewRepo.ListAliases(ctx, fe.ID)
-			aliasesByFE[fe.ID] = aliases
-		}
-
-		importedAdded := 0
-		autoConfirmed := 0
-		queued := 0
-		skippedNoPeriod := 0
-		skippedDuplicate := 0
-		for _, tx := range added {
-			date := pgtype.Date{Time: tx.Date, Valid: true}
-
-			period, err := budgetRepo.GetPeriodByDate(ctx, item.BudgetProfileID, date)
-			if err != nil {
-				skippedNoPeriod++
-				continue
-			}
-
-			exists, err := txRepo.ExistsTransactionByPlaidID(ctx, &tx.PlaidID)
-			if err != nil || exists {
-				skippedDuplicate++
-				continue
-			}
-
-			amount := amountToNumeric(tx.Amount)
-			plaidID := tx.PlaidID
-			periodID := period.ID
-
-			categoryName := plaidclient.ResolvePlaidCategory(tx.PFCPrimary, tx.PFCDetailed)
-			log.Printf("item %s: importing tx %q amount=%.2f pfc=%s/%s -> category=%q", item.ID, tx.Name, tx.Amount, tx.PFCPrimary, tx.PFCDetailed, categoryName)
-			var categoryID *int32
-			if categoryName != "" {
-				if id, ok := categoryIDs[categoryName]; ok {
-					categoryID = &id
-				}
-			}
-
-			// Resolve payment method from cached plaid_account_id lookup.
-			var paymentMethodID *uuid.UUID
-			if tx.AccountID != "" {
-				if pmID, cached := pmCache[tx.AccountID]; cached {
-					paymentMethodID = pmID
-				} else {
-					pm, pmErr := txRepo.GetPaymentMethodByPlaidAccountID(ctx, tx.AccountID)
-					if pmErr == nil {
-						id := pm.ID
-						paymentMethodID = &id
-					}
-					pmCache[tx.AccountID] = paymentMethodID
-				}
-			}
-
-			inserted, err := txRepo.CreateTransactionFromPlaid(ctx, sqlcdb.CreateTransactionFromPlaidParams{
-				Name:                   &tx.Name,
-				Amount:                 amount,
-				PlannedAmount:          amount,
-				Date:                   date,
-				Recurring:              boolPtr(false),
-				BudgetPeriodID:         &periodID,
-				CategoryID:             categoryID,
-				PaymentMethodID:        paymentMethodID,
-				TransactionFrequencyID: int32Ptr(oneOffFreqID),
-				TransactionTypeID:      int32Ptr(variableTypeID),
-				PlaidTransactionID:     &plaidID,
-			})
-			if err != nil {
-				log.Printf("item %s: insert tx %s: %v", item.ID, tx.PlaidID, err)
-				continue
-			}
-			importedAdded++
-
-			// Score against every fixed expense template — amount, name/alias,
-			// payment method, category — same criteria whether or not an alias
-			// was involved. An alias hit is folded in as name-match evidence
-			// rather than a separate unconditional shortcut, so a name match
-			// alone (e.g. two subscriptions from the same merchant, only one of
-			// which still has anything unpaid to match) can no longer silently
-			// consume and delete the wrong transaction.
-			bestScore, bestFE, bestAliasHit, bestAmountOK := scoreBestMatch(tx, categoryID, paymentMethodID, fixedExpenses, aliasesByFE)
-			if bestFE == nil {
-				continue
-			}
-			unpaid, upErr := feRepo.GetUnpaidTransaction(ctx, sqlcdb.GetUnpaidTransactionByFixedExpenseParams{
-				FixedExpenseID:  bestFE.ID,
-				BudgetProfileID: item.BudgetProfileID,
-			})
-			hasUnpaidTarget := upErr == nil && unpaid.BudgetPeriodID != nil
-
-			switch {
-			case bestAliasHit && bestAmountOK && hasUnpaidTarget:
-				// High-confidence: an explicitly registered alias, a matching
-				// amount, and something unpaid to actually confirm against.
-				_, _ = txRepo.MarkAsPaid(ctx, sqlcdb.MarkTransactionAsPaidParams{
-					ID:             unpaid.ID,
-					BudgetPeriodID: *unpaid.BudgetPeriodID,
-					Amount:         unpaid.PlannedAmount,
-					PaidDate:       unpaid.Date,
-				})
-				_ = txRepo.Delete(ctx, sqlcdb.DeleteTransactionParams{
-					ID:             inserted.ID,
-					BudgetPeriodID: &periodID,
-				})
-				importedAdded--
-				autoConfirmed++
-				log.Printf("item %s: auto-confirmed %q (alias+amount → %q)", item.ID, tx.Name, bestFE.Name)
-			case bestScore >= 80 && hasUnpaidTarget:
-				// Review rows match against the specific unpaid transaction,
-				// not the template — consistent with the manual flag-for-review
-				// path, and works the same whether unpaid.ID came from a
-				// FixedExpense template or (in principle) any other Fixed-type
-				// transaction.
-				if _, rErr := reviewRepo.Create(ctx, periodID, inserted.ID, unpaid.ID, bestScore); rErr == nil {
-					queued++
-					log.Printf("item %s: queued review for %q (score=%.0f, fixed=%q)", item.ID, tx.Name, bestScore, bestFE.Name)
-				}
-			}
-		}
-
-		for _, tx := range modified {
-			amount := amountToNumeric(tx.Amount)
-			if err := txRepo.UpdateTransactionFromPlaid(ctx, sqlcdb.UpdateTransactionFromPlaidParams{
-				PlaidTransactionID: &tx.PlaidID,
-				Name:               &tx.Name,
-				Amount:             amount,
-			}); err != nil {
-				log.Printf("item %s: update tx %s: %v", item.ID, tx.PlaidID, err)
-			}
-		}
-
-		for _, pid := range removedIDs {
-			if err := txRepo.DeleteTransactionByPlaidID(ctx, &pid); err != nil {
-				log.Printf("item %s: delete tx %s: %v", item.ID, pid, err)
-			}
-		}
-
-		_, err = plaidRepo.UpdateSync(ctx, sqlcdb.UpdatePlaidItemSyncParams{
-			ID:     item.ID,
-			Cursor: &nextCursor,
-		})
-		if err != nil {
-			log.Printf("item %s: update cursor: %v", item.ID, err)
-		}
-
-		log.Printf("item %s: done — +%d imported, %d auto-confirmed, %d queued for review, %d modified, %d removed, %d skipped (no period), %d skipped (duplicate)",
-			item.ID, importedAdded, autoConfirmed, queued, len(modified), len(removedIDs), skippedNoPeriod, skippedDuplicate)
-	}
-}
-
-// loadCategoryIDs queries all system categories and returns a name→id map.
-func loadCategoryIDs(ctx context.Context, q *sqlcdb.Queries) (map[string]int32, error) {
-	rows, err := q.ListSystemCategories(ctx)
-	if err != nil {
-		return nil, err
-	}
-	m := make(map[string]int32, len(rows))
-	for _, r := range rows {
-		m[r.Name] = r.ID
-	}
-	return m, nil
-}
-
-func amountToNumeric(f float64) pgtype.Numeric {
-	s := strconv.FormatFloat(f, 'f', 4, 64)
-	var n pgtype.Numeric
-	_ = n.Scan(s)
-	return n
-}
-
-func boolPtr(b bool) *bool    { return &b }
-func int32Ptr(i int32) *int32 { return &i }
-
-const amountTolerance = 3.0
-
-// amountWithinTolerance reports whether tx's amount is within amountTolerance
-// of fe's planned amount.
-func amountWithinTolerance(txAmount float64, fe *sqlcdb.FixedExpense) bool {
-	feAmt, err := fe.PlannedAmount.Float64Value()
-	return err == nil && feAmt.Valid && math.Abs(txAmount-feAmt.Float64) <= amountTolerance
-}
-
-// scoreBestMatch returns the highest match score, the corresponding fixed
-// expense, whether that match was via an explicitly registered alias (vs.
-// incidental word overlap), and whether its amount was within tolerance.
-// Weights: amount 40% ($3 tolerance), name 20%, payment method 20%, category 20%.
-func scoreBestMatch(tx plaidclient.Transaction, categoryID *int32, pmID *uuid.UUID, expenses []sqlcdb.FixedExpense, aliasesByFE map[uuid.UUID][]string) (float64, *sqlcdb.FixedExpense, bool, bool) {
-	best := 0.0
-	var bestFE *sqlcdb.FixedExpense
-	bestAliasHit := false
-	bestAmountOK := false
-	txNameLower := strings.ToLower(tx.Name)
-	for i := range expenses {
-		fe := &expenses[i]
-		score := 0.0
-
-		// Amount: 40pts within $3
-		amountOK := amountWithinTolerance(tx.Amount, fe)
-		if amountOK {
-			score += 40
-		}
-
-		// Name: 20pts — an exact match against a registered alias, or any
-		// significant word (≥4 chars) shared between names.
-		aliasHit := false
-		for _, alias := range aliasesByFE[fe.ID] {
-			if strings.EqualFold(alias, tx.Name) {
-				aliasHit = true
-				break
-			}
-		}
-		feLower := strings.ToLower(fe.Name)
-		if aliasHit || nameWordsOverlap(txNameLower, feLower) {
-			score += 20
-		}
-
-		// Payment method: 20pts
-		if pmID != nil && fe.PaymentMethodID != nil && *pmID == *fe.PaymentMethodID {
-			score += 20
-		}
-
-		// Category: 20pts
-		if categoryID != nil && fe.CategoryID != nil && *categoryID == *fe.CategoryID {
-			score += 20
-		}
-
-		if score > best {
-			best = score
-			bestFE = fe
-			bestAliasHit = aliasHit
-			bestAmountOK = amountOK
+		if err := svc.SyncItem(ctx, item); err != nil {
+			log.Printf("item %s: sync failed: %v", item.ID, err)
 		}
 	}
-	return best, bestFE, bestAliasHit, bestAmountOK
-}
-
-// nameWordsOverlap returns true if the two lowercased names share at least one
-// word of 4+ characters, catching cases like "RENEWAL MEMBERSHIP FEE" vs "Amex Renewal".
-func nameWordsOverlap(a, b string) bool {
-	words := func(s string) map[string]struct{} {
-		m := make(map[string]struct{})
-		for _, w := range strings.FieldsFunc(s, func(r rune) bool { return !('a' <= r && r <= 'z') }) {
-			if len(w) >= 4 {
-				m[w] = struct{}{}
-			}
-		}
-		return m
-	}
-	aw := words(a)
-	for w := range words(b) {
-		if _, ok := aw[w]; ok {
-			return true
-		}
-	}
-	return false
 }
