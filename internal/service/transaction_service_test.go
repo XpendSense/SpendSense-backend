@@ -307,6 +307,10 @@ func (m *mockTransactionRepo) UpdatePaymentMethodPlaidAccountID(_ context.Contex
 	return nil
 }
 
+func (m *mockTransactionRepo) ListSystemCategories(_ context.Context) (map[string]int32, error) {
+	return map[string]int32{}, nil
+}
+
 // ── mockTransactionReviewRepo ─────────────────────────────────────────────────
 
 type mockTransactionReviewRepo struct {

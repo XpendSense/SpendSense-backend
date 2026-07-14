@@ -157,7 +157,7 @@ func newPlaidSvc(pc plaidclient.Client, plaidRepo *mockPlaidRepo, budgetRepo *mo
 			}
 			return usUser(), nil
 		},
-	}, &mockTransactionRepo{}, testEncKey)
+	}, &mockTransactionRepo{}, nil, nil, testEncKey)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ func TestPlaid_CreateLinkToken_Success(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, budgetRepo, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, testEncKey)
+	}, &mockTransactionRepo{}, nil, nil, testEncKey)
 
 	result, err := svc.CreateLinkToken(context.Background(), user.ID, profileID)
 	require.NoError(t, err)
@@ -185,7 +185,7 @@ func TestPlaid_CreateLinkToken_NonUS_Forbidden(t *testing.T) {
 
 	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, testEncKey)
+	}, &mockTransactionRepo{}, nil, nil, testEncKey)
 
 	_, err := svc.CreateLinkToken(context.Background(), user.ID, uuid.New())
 	require.Error(t, err)
@@ -204,7 +204,7 @@ func TestPlaid_ExchangePublicToken_Success(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, &mockPlaidRepo{}, budgetRepo, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, testEncKey)
+	}, &mockTransactionRepo{}, nil, nil, testEncKey)
 
 	item, err := svc.ExchangePublicToken(context.Background(), user.ID, profileID, "public-token-sandbox")
 	require.NoError(t, err)
@@ -229,7 +229,7 @@ func TestPlaid_Disconnect_Success(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, testEncKey)
+	}, &mockTransactionRepo{}, nil, nil, testEncKey)
 
 	err := svc.Disconnect(context.Background(), user.ID, connID)
 	require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestPlaid_Disconnect_WrongUser_Forbidden(t *testing.T) {
 	}
 	svc := NewPlaidService(&mockPlaidClient{}, plaidRepo, &mockBudgetProfileRepo{}, &mockUserRepo{
 		getByID: func(_ context.Context, _ uuid.UUID) (db.User, error) { return user, nil },
-	}, &mockTransactionRepo{}, testEncKey)
+	}, &mockTransactionRepo{}, nil, nil, testEncKey)
 
 	err := svc.Disconnect(context.Background(), user.ID, connID)
 	require.Error(t, err)

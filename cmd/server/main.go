@@ -75,7 +75,7 @@ func main() {
 		if pcErr != nil {
 			log.Fatalf("plaid: init client: %v", pcErr)
 		}
-		plaidSvc = service.NewPlaidService(pc, plaidRepo, budgetProfileRepo, userRepo, transactionRepo, cfg.EncryptionKey)
+		plaidSvc = service.NewPlaidService(pc, plaidRepo, budgetProfileRepo, userRepo, transactionRepo, fixedExpenseRepo, reviewRepo, cfg.EncryptionKey)
 	}
 
 	// Procedures that don't require authentication
