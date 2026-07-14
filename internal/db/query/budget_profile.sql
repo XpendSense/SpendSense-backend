@@ -111,6 +111,12 @@ FROM budget_to_profile_mapping
 WHERE id = $1 AND budget_profile_id = $2
 LIMIT 1;
 
+-- name: GetBudgetPersonByID :one
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+FROM budget_to_profile_mapping
+WHERE id = $1
+LIMIT 1;
+
 -- name: GetBudgetPersonByUserID :one
 SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
 FROM budget_to_profile_mapping

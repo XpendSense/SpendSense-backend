@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -34,6 +35,7 @@ type mockBudgetProfileRepo struct {
 	listProfileIDsWithExpired     func(context.Context, pgtype.Date) ([]uuid.UUID, error)
 	listPeople                    func(context.Context, uuid.UUID) ([]db.BudgetToProfileMapping, error)
 	getPerson                     func(context.Context, int32, uuid.UUID) (db.BudgetToProfileMapping, error)
+	getPersonByID                 func(context.Context, int32) (db.BudgetToProfileMapping, error)
 	getPersonByUserID             func(context.Context, uuid.UUID, uuid.UUID) (db.BudgetToProfileMapping, error)
 	existsPerson                  func(context.Context, uuid.UUID, string) (bool, error)
 	existsPersonForUser           func(context.Context, uuid.UUID, uuid.UUID) (bool, error)
@@ -159,6 +161,12 @@ func (m *mockBudgetProfileRepo) ExistsPersonForUser(ctx context.Context, profile
 		return m.existsPersonForUser(ctx, profileID, userID)
 	}
 	return false, nil
+}
+func (m *mockBudgetProfileRepo) GetPersonByID(ctx context.Context, personID int32) (db.BudgetToProfileMapping, error) {
+	if m.getPersonByID != nil {
+		return m.getPersonByID(ctx, personID)
+	}
+	return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", fmt.Sprintf("%d", personID))
 }
 func (m *mockBudgetProfileRepo) GetPersonByUserID(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetToProfileMapping, error) {
 	if m.getPersonByUserID != nil {

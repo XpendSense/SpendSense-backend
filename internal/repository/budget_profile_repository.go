@@ -34,6 +34,7 @@ type BudgetProfileRepository interface {
 	// People
 	ListPeople(ctx context.Context, profileID uuid.UUID) ([]db.BudgetToProfileMapping, error)
 	GetPerson(ctx context.Context, personID int32, profileID uuid.UUID) (db.BudgetToProfileMapping, error)
+	GetPersonByID(ctx context.Context, personID int32) (db.BudgetToProfileMapping, error)
 	GetPersonByUserID(ctx context.Context, profileID, userID uuid.UUID) (db.BudgetToProfileMapping, error)
 	ExistsPerson(ctx context.Context, profileID uuid.UUID, userName string) (bool, error)
 	ExistsPersonForUser(ctx context.Context, profileID, userID uuid.UUID) (bool, error)
@@ -164,6 +165,14 @@ func (r *budgetProfileRepository) ListPeople(ctx context.Context, profileID uuid
 
 func (r *budgetProfileRepository) GetPerson(ctx context.Context, personID int32, profileID uuid.UUID) (db.BudgetToProfileMapping, error) {
 	m, err := r.q.GetBudgetPersonByProfileID(ctx, db.GetBudgetPersonByProfileIDParams{ID: personID, BudgetProfileID: profileID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", fmt.Sprintf("%d", personID))
+	}
+	return m, err
+}
+
+func (r *budgetProfileRepository) GetPersonByID(ctx context.Context, personID int32) (db.BudgetToProfileMapping, error) {
+	m, err := r.q.GetBudgetPersonByID(ctx, personID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.BudgetToProfileMapping{}, apperr.NotFound("budget_person", fmt.Sprintf("%d", personID))
 	}

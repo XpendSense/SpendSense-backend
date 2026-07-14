@@ -396,7 +396,7 @@ func (m *mockTransactionReviewRepo) GetFixedExpenseByAlias(ctx context.Context, 
 
 // ── UpdatePaymentMethod tests ─────────────────────────────────────────────────
 
-func TestUpdatePaymentMethod_Success(t *testing.T) {
+func TestUpdatePaymentMethod_Success_OwnMethod(t *testing.T) {
 	typeID := int32(2) // CREDIT
 	methodID := uuid.New()
 	userID := uuid.New()
@@ -409,9 +409,11 @@ func TestUpdatePaymentMethod_Success(t *testing.T) {
 
 	svc := NewTransactionService(
 		&mockTransactionRepo{
+			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
+				return db.PaymentMethod{ID: id, UserID: &userID}, nil
+			},
 			updatePaymentMethod: func(_ context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error) {
 				assert.Equal(t, methodID, arg.ID)
-				assert.Equal(t, userID, arg.UserID)
 				assert.Equal(t, "Chase Visa", arg.Name)
 				return expected, nil
 			},
@@ -423,10 +425,9 @@ func TestUpdatePaymentMethod_Success(t *testing.T) {
 	)
 
 	result, err := svc.UpdatePaymentMethod(context.Background(), db.UpdatePaymentMethodParams{
-		ID:     methodID,
-		Name:   "Chase Visa",
-		UserID: userID,
-	})
+		ID:   methodID,
+		Name: "Chase Visa",
+	}, userID)
 
 	require.NoError(t, err)
 	assert.Equal(t, expected.ID, result.ID)
@@ -434,11 +435,97 @@ func TestUpdatePaymentMethod_Success(t *testing.T) {
 	assert.Equal(t, expected.PaymentTypeID, result.PaymentTypeID)
 }
 
-func TestUpdatePaymentMethod_NotFound_WhenUserDoesNotOwnMethod(t *testing.T) {
+func TestUpdatePaymentMethod_Success_AdminUpdatesCollaboratorMethod(t *testing.T) {
+	typeID := int32(2) // CREDIT
+	methodID := uuid.New()
+	adminID := uuid.New()
+	collaboratorPersonID := int32(7)
+	profileID := uuid.New()
+	expected := db.PaymentMethod{
+		ID:            methodID,
+		Name:          "Updated Name",
+		PaymentTypeID: &typeID,
+	}
+
 	svc := NewTransactionService(
 		&mockTransactionRepo{
+			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
+				return db.PaymentMethod{ID: id, BudgetPersonID: &collaboratorPersonID}, nil
+			},
 			updatePaymentMethod: func(_ context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error) {
-				return db.PaymentMethod{}, apperr.NotFound("payment_method", arg.ID.String())
+				return expected, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPersonByID: func(_ context.Context, personID int32) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{ID: personID, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: id, UserID: adminID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	result, err := svc.UpdatePaymentMethod(context.Background(), db.UpdatePaymentMethodParams{
+		ID:   methodID,
+		Name: "Updated Name",
+	}, adminID)
+
+	require.NoError(t, err)
+	assert.Equal(t, expected.ID, result.ID)
+}
+
+func TestUpdatePaymentMethod_Forbidden_ViewerCannotUpdate(t *testing.T) {
+	methodID := uuid.New()
+	viewerID := uuid.New()
+	personID := int32(5)
+	profileID := uuid.New()
+	ownerID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
+				return db.PaymentMethod{ID: id, BudgetPersonID: &personID}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPersonByID: func(_ context.Context, pid int32) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{ID: pid, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: id, UserID: ownerID}, nil
+			},
+			getPersonByUserID: func(_ context.Context, profID, uid uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{Role: "viewer"}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.UpdatePaymentMethod(context.Background(), db.UpdatePaymentMethodParams{
+		ID:   methodID,
+		Name: "Renamed",
+	}, viewerID)
+
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}
+
+func TestUpdatePaymentMethod_Forbidden_WhenNotOwnerOfUnattributedMethod(t *testing.T) {
+	methodID := uuid.New()
+	ownerID := uuid.New()
+	otherUserID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
+				return db.PaymentMethod{ID: id, UserID: &ownerID}, nil
 			},
 		},
 		&mockBudgetProfileRepo{},
@@ -448,10 +535,32 @@ func TestUpdatePaymentMethod_NotFound_WhenUserDoesNotOwnMethod(t *testing.T) {
 	)
 
 	_, err := svc.UpdatePaymentMethod(context.Background(), db.UpdatePaymentMethodParams{
-		ID:     uuid.New(),
-		Name:   "Renamed",
-		UserID: uuid.New(),
-	})
+		ID:   methodID,
+		Name: "Renamed",
+	}, otherUserID)
+
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}
+
+func TestUpdatePaymentMethod_NotFound_WhenMethodMissing(t *testing.T) {
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
+				return db.PaymentMethod{}, apperr.NotFound("payment_method", id.String())
+			},
+		},
+		&mockBudgetProfileRepo{},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.UpdatePaymentMethod(context.Background(), db.UpdatePaymentMethodParams{
+		ID:   uuid.New(),
+		Name: "Renamed",
+	}, uuid.New())
 
 	require.Error(t, err)
 	var notFound *apperr.NotFoundError
@@ -707,17 +816,20 @@ func TestDeletePaymentMethod_Success(t *testing.T) {
 	svc := NewTransactionService(
 		&mockTransactionRepo{
 			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
-				return db.PaymentMethod{ID: id, Name: "method", UserID: &userID}, nil
+				return db.PaymentMethod{ID: id, Name: "method"}, nil
 			},
 			deletePaymentMethodAndReassign: func(_ context.Context, arg db.DeletePaymentMethodAndReassignParams) error {
 				assert.Equal(t, methodID, arg.ID)
-				assert.Equal(t, userID, arg.UserID)
 				assert.Equal(t, replacementID, arg.ReplacementID)
 				assert.Equal(t, profileID, arg.BudgetProfileID)
 				return nil
 			},
 		},
-		&mockBudgetProfileRepo{},
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: id, UserID: userID}, nil
+			},
+		},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
 		&mockTransactionReviewRepo{},
@@ -727,70 +839,53 @@ func TestDeletePaymentMethod_Success(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestDeletePaymentMethod_Forbidden_WhenNotOwner(t *testing.T) {
-	userID := uuid.New()
-	otherUserID := uuid.New()
-	methodID := uuid.New()
+func TestDeletePaymentMethod_Forbidden_WhenViewer(t *testing.T) {
+	viewerID := uuid.New()
+	ownerID := uuid.New()
+	profileID := uuid.New()
 
 	svc := NewTransactionService(
-		&mockTransactionRepo{
-			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
-				return db.PaymentMethod{ID: id, Name: "method", UserID: &otherUserID}, nil
+		&mockTransactionRepo{},
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: id, UserID: ownerID}, nil
+			},
+			getPersonByUserID: func(_ context.Context, profID, uid uuid.UUID) (db.BudgetToProfileMapping, error) {
+				return db.BudgetToProfileMapping{Role: "viewer"}, nil
 			},
 		},
-		&mockBudgetProfileRepo{},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
 		&mockTransactionReviewRepo{},
 	)
 
-	err := svc.DeletePaymentMethod(context.Background(), methodID, uuid.New(), uuid.New(), userID)
-	require.Error(t, err)
-	var forbidden *apperr.ForbiddenError
-	require.ErrorAs(t, err, &forbidden)
-}
-
-func TestDeletePaymentMethod_Forbidden_WhenReplacementNotOwned(t *testing.T) {
-	userID := uuid.New()
-	otherUserID := uuid.New()
-	methodID := uuid.New()
-	replacementID := uuid.New()
-
-	svc := NewTransactionService(
-		&mockTransactionRepo{
-			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
-				if id == methodID {
-					return db.PaymentMethod{ID: id, Name: "mine", UserID: &userID}, nil
-				}
-				return db.PaymentMethod{ID: id, Name: "other", UserID: &otherUserID}, nil
-			},
-		},
-		&mockBudgetProfileRepo{},
-		&mockExpenseAllocationRepo{},
-		&mockFixedExpenseRepo{},
-		&mockTransactionReviewRepo{},
-	)
-
-	err := svc.DeletePaymentMethod(context.Background(), methodID, replacementID, uuid.New(), userID)
+	err := svc.DeletePaymentMethod(context.Background(), uuid.New(), uuid.New(), profileID, viewerID)
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	require.ErrorAs(t, err, &forbidden)
 }
 
 func TestDeletePaymentMethod_NotFound_WhenMethodMissing(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+
 	svc := NewTransactionService(
 		&mockTransactionRepo{
 			getPaymentMethod: func(_ context.Context, id uuid.UUID) (db.PaymentMethod, error) {
 				return db.PaymentMethod{}, apperr.NotFound("payment_method", id.String())
 			},
 		},
-		&mockBudgetProfileRepo{},
+		&mockBudgetProfileRepo{
+			getByID: func(_ context.Context, id uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: id, UserID: userID}, nil
+			},
+		},
 		&mockExpenseAllocationRepo{},
 		&mockFixedExpenseRepo{},
 		&mockTransactionReviewRepo{},
 	)
 
-	err := svc.DeletePaymentMethod(context.Background(), uuid.New(), uuid.New(), uuid.New(), uuid.New())
+	err := svc.DeletePaymentMethod(context.Background(), uuid.New(), uuid.New(), profileID, userID)
 	require.Error(t, err)
 	var notFound *apperr.NotFoundError
 	require.ErrorAs(t, err, &notFound)

@@ -209,7 +209,22 @@ func (s *TransactionService) CreatePaymentMethod(ctx context.Context, arg db.Cre
 	return s.transactions.CreatePaymentMethod(ctx, arg)
 }
 
-func (s *TransactionService) UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams) (db.PaymentMethod, error) {
+func (s *TransactionService) UpdatePaymentMethod(ctx context.Context, arg db.UpdatePaymentMethodParams, userID uuid.UUID) (db.PaymentMethod, error) {
+	method, err := s.transactions.GetPaymentMethod(ctx, arg.ID)
+	if err != nil {
+		return db.PaymentMethod{}, err
+	}
+	if method.BudgetPersonID != nil {
+		person, err := s.profiles.GetPersonByID(ctx, *method.BudgetPersonID)
+		if err != nil {
+			return db.PaymentMethod{}, err
+		}
+		if err := s.assertProfileCollaborator(ctx, person.BudgetProfileID, userID); err != nil {
+			return db.PaymentMethod{}, err
+		}
+	} else if method.UserID == nil || *method.UserID != userID {
+		return db.PaymentMethod{}, apperr.Forbidden("access denied")
+	}
 	return s.transactions.UpdatePaymentMethod(ctx, arg)
 }
 
@@ -269,37 +284,21 @@ func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uui
 }
 
 func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replacementID, budgetProfileID, userID uuid.UUID) error {
-	method, err := s.transactions.GetPaymentMethod(ctx, id)
-	if err != nil {
+	if err := s.assertProfileCollaborator(ctx, budgetProfileID, userID); err != nil {
 		return err
 	}
-	if !s.paymentMethodInBudget(ctx, method, budgetProfileID, userID) {
-		return apperr.Forbidden("access denied")
-	}
-	replacement, err := s.transactions.GetPaymentMethod(ctx, replacementID)
-	if err != nil {
+	// Verify both methods belong to the given budget profile.
+	if _, err := s.transactions.GetPaymentMethod(ctx, id); err != nil {
 		return err
 	}
-	if !s.paymentMethodInBudget(ctx, replacement, budgetProfileID, userID) {
-		return apperr.Forbidden("replacement payment method is not accessible")
+	if _, err := s.transactions.GetPaymentMethod(ctx, replacementID); err != nil {
+		return err
 	}
 	return s.transactions.DeletePaymentMethodAndReassign(ctx, db.DeletePaymentMethodAndReassignParams{
 		ID:              id,
-		UserID:          userID,
 		ReplacementID:   replacementID,
 		BudgetProfileID: budgetProfileID,
 	})
-}
-
-// paymentMethodInBudget returns true when pm belongs to the given budget profile
-// (via its budget_person_id) or, for unattributed methods, when the requester
-// owns it directly. Used to authorise cross-collaborator delete/update operations.
-func (s *TransactionService) paymentMethodInBudget(ctx context.Context, pm db.PaymentMethod, budgetProfileID uuid.UUID, userID uuid.UUID) bool {
-	if pm.BudgetPersonID != nil {
-		_, err := s.profiles.GetPerson(ctx, *pm.BudgetPersonID, budgetProfileID)
-		return err == nil
-	}
-	return pm.UserID != nil && *pm.UserID == userID
 }
 
 // ── Transaction review ────────────────────────────────────────────────────────
