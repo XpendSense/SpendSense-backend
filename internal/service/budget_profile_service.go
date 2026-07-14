@@ -1273,15 +1273,37 @@ func (s *BudgetProfileService) UpdateFixedExpense(ctx context.Context, id uuid.U
 		Valid: true,
 	}
 	name := fe.Name
-	_ = s.fixedExpenses.UpdateTransactionFromFixedExpense(ctx, db.UpdateTransactionFromFixedExpenseParams{
+	_, getErr := s.fixedExpenses.GetUnpaidTransaction(ctx, db.GetUnpaidTransactionByFixedExpenseParams{
 		FixedExpenseID:  fe.ID,
 		BudgetProfileID: profileID,
-		Name:            &name,
-		PlannedAmount:   fe.PlannedAmount,
-		CategoryID:      fe.CategoryID,
-		PaymentMethodID: fe.PaymentMethodID,
-		Date:            txDate,
 	})
+	if getErr != nil {
+		// No existing unpaid transaction — expense just became due (e.g. anchor
+		// date was removed or moved to past). Spawn one for the current period.
+		txTypeFixed := int32(1)
+		feID := fe.ID
+		_, _ = s.transactions.Create(ctx, db.CreateTransactionParams{
+			Name:              &name,
+			Amount:            fe.PlannedAmount,
+			PlannedAmount:     fe.PlannedAmount,
+			Date:              txDate,
+			BudgetPeriodID:    &period.ID,
+			CategoryID:        fe.CategoryID,
+			PaymentMethodID:   fe.PaymentMethodID,
+			TransactionTypeID: &txTypeFixed,
+			FixedExpenseID:    &feID,
+		})
+	} else {
+		_ = s.fixedExpenses.UpdateTransactionFromFixedExpense(ctx, db.UpdateTransactionFromFixedExpenseParams{
+			FixedExpenseID:  fe.ID,
+			BudgetProfileID: profileID,
+			Name:            &name,
+			PlannedAmount:   fe.PlannedAmount,
+			CategoryID:      fe.CategoryID,
+			PaymentMethodID: fe.PaymentMethodID,
+			Date:            txDate,
+		})
+	}
 
 	return fe, nil
 }
