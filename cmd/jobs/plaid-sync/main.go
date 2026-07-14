@@ -108,8 +108,14 @@ func main() {
 		// Cache plaid_account_id → payment_method_id for this item's sync run.
 		pmCache := map[string]*uuid.UUID{}
 
-		// Pre-load active fixed expenses once per item for match scoring.
+		// Pre-load active fixed expenses once per item for match scoring, along
+		// with each one's registered aliases (used as a strong name-match signal).
 		fixedExpenses, _ := feRepo.List(ctx, item.BudgetProfileID)
+		aliasesByFE := make(map[uuid.UUID][]string, len(fixedExpenses))
+		for _, fe := range fixedExpenses {
+			aliases, _ := reviewRepo.ListAliases(ctx, fe.ID)
+			aliasesByFE[fe.ID] = aliases
+		}
 
 		importedAdded := 0
 		autoConfirmed := 0
@@ -178,41 +184,44 @@ func main() {
 			}
 			importedAdded++
 
-			// Alias match → auto-confirm: mark the fixed tx paid, delete the import.
-			if aliasMatch, aliasErr := reviewRepo.GetFixedExpenseByAlias(ctx, tx.Name, item.BudgetProfileID); aliasErr == nil {
-				unpaid, upErr := feRepo.GetUnpaidTransaction(ctx, sqlcdb.GetUnpaidTransactionByFixedExpenseParams{
-					FixedExpenseID:  aliasMatch.ID,
-					BudgetProfileID: item.BudgetProfileID,
+			// Score against every fixed expense template — amount, name/alias,
+			// payment method, category — same criteria whether or not an alias
+			// was involved. An alias hit is folded in as name-match evidence
+			// rather than a separate unconditional shortcut, so a name match
+			// alone (e.g. two subscriptions from the same merchant, only one of
+			// which still has anything unpaid to match) can no longer silently
+			// consume and delete the wrong transaction.
+			bestScore, bestFE, bestAliasHit, bestAmountOK := scoreBestMatch(tx, categoryID, paymentMethodID, fixedExpenses, aliasesByFE)
+			if bestFE == nil {
+				continue
+			}
+			unpaid, upErr := feRepo.GetUnpaidTransaction(ctx, sqlcdb.GetUnpaidTransactionByFixedExpenseParams{
+				FixedExpenseID:  bestFE.ID,
+				BudgetProfileID: item.BudgetProfileID,
+			})
+			hasUnpaidTarget := upErr == nil && unpaid.BudgetPeriodID != nil
+
+			switch {
+			case bestAliasHit && bestAmountOK && hasUnpaidTarget:
+				// High-confidence: an explicitly registered alias, a matching
+				// amount, and something unpaid to actually confirm against.
+				_, _ = txRepo.MarkAsPaid(ctx, sqlcdb.MarkTransactionAsPaidParams{
+					ID:             unpaid.ID,
+					BudgetPeriodID: *unpaid.BudgetPeriodID,
+					Amount:         unpaid.PlannedAmount,
+					PaidDate:       unpaid.Date,
 				})
-				if upErr == nil && unpaid.BudgetPeriodID != nil {
-					_, _ = txRepo.MarkAsPaid(ctx, sqlcdb.MarkTransactionAsPaidParams{
-						ID:             unpaid.ID,
-						BudgetPeriodID: *unpaid.BudgetPeriodID,
-						Amount:         unpaid.PlannedAmount,
-						PaidDate:       unpaid.Date,
-					})
-				}
 				_ = txRepo.Delete(ctx, sqlcdb.DeleteTransactionParams{
 					ID:             inserted.ID,
 					BudgetPeriodID: &periodID,
 				})
 				importedAdded--
 				autoConfirmed++
-				log.Printf("item %s: auto-confirmed %q (alias → %q)", item.ID, tx.Name, aliasMatch.Name)
-				continue
-			}
-
-			// Score against fixed expense templates — queue for review if ≥ 80 and not yet paid.
-			bestScore, bestFE := scoreBestMatch(tx, categoryID, paymentMethodID, fixedExpenses)
-			if bestScore >= 80 && bestFE != nil {
-				if _, upErr := feRepo.GetUnpaidTransaction(ctx, sqlcdb.GetUnpaidTransactionByFixedExpenseParams{
-					FixedExpenseID:  bestFE.ID,
-					BudgetProfileID: item.BudgetProfileID,
-				}); upErr == nil {
-					if _, rErr := reviewRepo.Create(ctx, periodID, inserted.ID, bestFE.ID, bestScore); rErr == nil {
-						queued++
-						log.Printf("item %s: queued review for %q (score=%.0f, fixed=%q)", item.ID, tx.Name, bestScore, bestFE.Name)
-					}
+				log.Printf("item %s: auto-confirmed %q (alias+amount → %q)", item.ID, tx.Name, bestFE.Name)
+			case bestScore >= 80 && hasUnpaidTarget:
+				if _, rErr := reviewRepo.Create(ctx, periodID, inserted.ID, bestFE.ID, bestScore); rErr == nil {
+					queued++
+					log.Printf("item %s: queued review for %q (score=%.0f, fixed=%q)", item.ID, tx.Name, bestScore, bestFE.Name)
 				}
 			}
 		}
@@ -270,26 +279,46 @@ func amountToNumeric(f float64) pgtype.Numeric {
 func boolPtr(b bool) *bool    { return &b }
 func int32Ptr(i int32) *int32 { return &i }
 
-// scoreBestMatch returns the highest match score and the corresponding fixed
-// expense. Weights: amount 40% ($3 tolerance), name 20%, payment method 20%,
-// category 20%.
-func scoreBestMatch(tx plaidclient.Transaction, categoryID *int32, pmID *uuid.UUID, expenses []sqlcdb.FixedExpense) (float64, *sqlcdb.FixedExpense) {
+const amountTolerance = 3.0
+
+// amountWithinTolerance reports whether tx's amount is within amountTolerance
+// of fe's planned amount.
+func amountWithinTolerance(txAmount float64, fe *sqlcdb.FixedExpense) bool {
+	feAmt, err := fe.PlannedAmount.Float64Value()
+	return err == nil && feAmt.Valid && math.Abs(txAmount-feAmt.Float64) <= amountTolerance
+}
+
+// scoreBestMatch returns the highest match score, the corresponding fixed
+// expense, whether that match was via an explicitly registered alias (vs.
+// incidental word overlap), and whether its amount was within tolerance.
+// Weights: amount 40% ($3 tolerance), name 20%, payment method 20%, category 20%.
+func scoreBestMatch(tx plaidclient.Transaction, categoryID *int32, pmID *uuid.UUID, expenses []sqlcdb.FixedExpense, aliasesByFE map[uuid.UUID][]string) (float64, *sqlcdb.FixedExpense, bool, bool) {
 	best := 0.0
 	var bestFE *sqlcdb.FixedExpense
+	bestAliasHit := false
+	bestAmountOK := false
 	txNameLower := strings.ToLower(tx.Name)
 	for i := range expenses {
 		fe := &expenses[i]
 		score := 0.0
 
 		// Amount: 40pts within $3
-		feAmt, err := fe.PlannedAmount.Float64Value()
-		if err == nil && feAmt.Valid && math.Abs(tx.Amount-feAmt.Float64) <= 3.0 {
+		amountOK := amountWithinTolerance(tx.Amount, fe)
+		if amountOK {
 			score += 40
 		}
 
-		// Name: 20pts — any significant word (≥4 chars) shared between names
+		// Name: 20pts — an exact match against a registered alias, or any
+		// significant word (≥4 chars) shared between names.
+		aliasHit := false
+		for _, alias := range aliasesByFE[fe.ID] {
+			if strings.EqualFold(alias, tx.Name) {
+				aliasHit = true
+				break
+			}
+		}
 		feLower := strings.ToLower(fe.Name)
-		if nameWordsOverlap(txNameLower, feLower) {
+		if aliasHit || nameWordsOverlap(txNameLower, feLower) {
 			score += 20
 		}
 
@@ -306,9 +335,11 @@ func scoreBestMatch(tx plaidclient.Transaction, categoryID *int32, pmID *uuid.UU
 		if score > best {
 			best = score
 			bestFE = fe
+			bestAliasHit = aliasHit
+			bestAmountOK = amountOK
 		}
 	}
-	return best, bestFE
+	return best, bestFE, bestAliasHit, bestAmountOK
 }
 
 // nameWordsOverlap returns true if the two lowercased names share at least one
