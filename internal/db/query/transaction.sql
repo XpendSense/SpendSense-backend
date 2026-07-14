@@ -180,16 +180,6 @@ RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color
 UPDATE payment_methods
 SET name = sqlc.arg('name'), color = sqlc.arg('color')
 WHERE payment_methods.id = sqlc.arg('id')
-  AND (
-    payment_methods.user_id = sqlc.arg('user_id')::uuid
-    OR payment_methods.budget_person_id IN (
-      SELECT bpm.id FROM budget_to_profile_mapping bpm
-      JOIN budget_to_profile_mapping requester ON requester.budget_profile_id = bpm.budget_profile_id
-      WHERE requester.user_id = sqlc.arg('user_id')::uuid
-        AND requester.is_active = TRUE
-        AND bpm.is_active = TRUE
-    )
-  )
 RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id;
 
 -- Reassigns all transactions and savings sources referencing this method, then soft-deletes.
@@ -207,7 +197,7 @@ WITH moved_tx AS (
 )
 UPDATE payment_methods
 SET is_active = FALSE
-WHERE payment_methods.id = sqlc.arg('id')::uuid AND payment_methods.user_id = sqlc.arg('user_id')::uuid;
+WHERE payment_methods.id = sqlc.arg('id')::uuid;
 
 -- Creates a payment method linked to a Plaid account. plaid_account_id is
 -- stored so the sync job can route imported transactions to the right method.

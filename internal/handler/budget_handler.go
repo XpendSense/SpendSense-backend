@@ -380,11 +380,10 @@ func (h *BudgetHandler) UpdatePaymentMethod(ctx context.Context, req *connect.Re
 		return nil, toConnectError(apperr.Invalid("invalid payment method id"))
 	}
 	method, svcErr := h.transactions.UpdatePaymentMethod(ctx, db.UpdatePaymentMethodParams{
-		ID:     id,
-		Name:   req.Msg.Name,
-		Color:  req.Msg.Color,
-		UserID: userID,
-	})
+		ID:    id,
+		Name:  req.Msg.Name,
+		Color: req.Msg.Color,
+	}, userID)
 	if svcErr != nil {
 		return nil, toConnectError(svcErr)
 	}

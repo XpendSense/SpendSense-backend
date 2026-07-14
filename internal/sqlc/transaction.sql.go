@@ -284,36 +284,30 @@ func (q *Queries) DeleteCategoryAndReassign(ctx context.Context, arg DeleteCateg
 
 const deletePaymentMethodAndReassign = `-- name: DeletePaymentMethodAndReassign :exec
 WITH moved_tx AS (
-    UPDATE transaction SET payment_method_id = $3::uuid
+    UPDATE transaction SET payment_method_id = $2::uuid
     WHERE payment_method_id = $1::uuid
       AND budget_period_id IN (
-        SELECT bp.id FROM budget_period bp WHERE bp.budget_profile_id = $4::uuid
+        SELECT bp.id FROM budget_period bp WHERE bp.budget_profile_id = $3::uuid
       )
 ), moved_savings AS (
-    UPDATE savings_source SET payment_method_id = $3::uuid
+    UPDATE savings_source SET payment_method_id = $2::uuid
     WHERE payment_method_id = $1::uuid
-      AND budget_profile_id = $4::uuid
+      AND budget_profile_id = $3::uuid
 )
 UPDATE payment_methods
 SET is_active = FALSE
-WHERE payment_methods.id = $1::uuid AND payment_methods.user_id = $2::uuid
+WHERE payment_methods.id = $1::uuid
 `
 
 type DeletePaymentMethodAndReassignParams struct {
 	ID              uuid.UUID `json:"id"`
-	UserID          uuid.UUID `json:"user_id"`
 	ReplacementID   uuid.UUID `json:"replacement_id"`
 	BudgetProfileID uuid.UUID `json:"budget_profile_id"`
 }
 
 // Reassigns all transactions and savings sources referencing this method, then soft-deletes.
 func (q *Queries) DeletePaymentMethodAndReassign(ctx context.Context, arg DeletePaymentMethodAndReassignParams) error {
-	_, err := q.db.Exec(ctx, deletePaymentMethodAndReassign,
-		arg.ID,
-		arg.UserID,
-		arg.ReplacementID,
-		arg.BudgetProfileID,
-	)
+	_, err := q.db.Exec(ctx, deletePaymentMethodAndReassign, arg.ID, arg.ReplacementID, arg.BudgetProfileID)
 	return err
 }
 
@@ -986,33 +980,17 @@ const updatePaymentMethod = `-- name: UpdatePaymentMethod :one
 UPDATE payment_methods
 SET name = $1, color = $2
 WHERE payment_methods.id = $3
-  AND (
-    payment_methods.user_id = $4::uuid
-    OR payment_methods.budget_person_id IN (
-      SELECT bpm.id FROM budget_to_profile_mapping bpm
-      JOIN budget_to_profile_mapping requester ON requester.budget_profile_id = bpm.budget_profile_id
-      WHERE requester.user_id = $4::uuid
-        AND requester.is_active = TRUE
-        AND bpm.is_active = TRUE
-    )
-  )
 RETURNING id, name, payment_type_id, user_id, is_active, budget_person_id, color, plaid_account_id
 `
 
 type UpdatePaymentMethodParams struct {
-	Name   string    `json:"name"`
-	Color  string    `json:"color"`
-	ID     uuid.UUID `json:"id"`
-	UserID uuid.UUID `json:"user_id"`
+	Name  string    `json:"name"`
+	Color string    `json:"color"`
+	ID    uuid.UUID `json:"id"`
 }
 
 func (q *Queries) UpdatePaymentMethod(ctx context.Context, arg UpdatePaymentMethodParams) (PaymentMethod, error) {
-	row := q.db.QueryRow(ctx, updatePaymentMethod,
-		arg.Name,
-		arg.Color,
-		arg.ID,
-		arg.UserID,
-	)
+	row := q.db.QueryRow(ctx, updatePaymentMethod, arg.Name, arg.Color, arg.ID)
 	var i PaymentMethod
 	err := row.Scan(
 		&i.ID,

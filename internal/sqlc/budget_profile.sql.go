@@ -403,6 +403,28 @@ func (q *Queries) GetBudgetPeriodByID(ctx context.Context, id uuid.UUID) (Budget
 	return i, err
 }
 
+const getBudgetPersonByID = `-- name: GetBudgetPersonByID :one
+SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
+FROM budget_to_profile_mapping
+WHERE id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetBudgetPersonByID(ctx context.Context, id int32) (BudgetToProfileMapping, error) {
+	row := q.db.QueryRow(ctx, getBudgetPersonByID, id)
+	var i BudgetToProfileMapping
+	err := row.Scan(
+		&i.ID,
+		&i.BudgetProfileID,
+		&i.UserName,
+		&i.UserID,
+		&i.IsActive,
+		&i.Color,
+		&i.Role,
+	)
+	return i, err
+}
+
 const getBudgetPersonByProfileID = `-- name: GetBudgetPersonByProfileID :one
 SELECT id, budget_profile_id, user_name, user_id, is_active, color, role
 FROM budget_to_profile_mapping
