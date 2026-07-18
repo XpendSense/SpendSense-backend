@@ -139,7 +139,7 @@ INSERT INTO transaction (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 `
 
 type CreateTransactionParams struct {
@@ -190,6 +190,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.PaidDate,
 		&i.FixedExpenseID,
 		&i.PlaidTransactionID,
+		&i.IsExcluded,
 	)
 	return i, err
 }
@@ -203,7 +204,7 @@ INSERT INTO transaction (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 `
 
 type CreateTransactionFromPlaidParams struct {
@@ -257,6 +258,7 @@ func (q *Queries) CreateTransactionFromPlaid(ctx context.Context, arg CreateTran
 		&i.PaidDate,
 		&i.FixedExpenseID,
 		&i.PlaidTransactionID,
+		&i.IsExcluded,
 	)
 	return i, err
 }
@@ -518,7 +520,7 @@ func (q *Queries) GetPaymentMethodByUserAndName(ctx context.Context, arg GetPaym
 const getTransactionByID = `-- name: GetTransactionByID :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 FROM transaction
 WHERE id = $1
 LIMIT 1
@@ -544,6 +546,7 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 		&i.PaidDate,
 		&i.FixedExpenseID,
 		&i.PlaidTransactionID,
+		&i.IsExcluded,
 	)
 	return i, err
 }
@@ -551,7 +554,7 @@ func (q *Queries) GetTransactionByID(ctx context.Context, id uuid.UUID) (Transac
 const getTransactionByPlaidID = `-- name: GetTransactionByPlaidID :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 FROM transaction
 WHERE plaid_transaction_id = $1
 LIMIT 1
@@ -577,6 +580,7 @@ func (q *Queries) GetTransactionByPlaidID(ctx context.Context, plaidTransactionI
 		&i.PaidDate,
 		&i.FixedExpenseID,
 		&i.PlaidTransactionID,
+		&i.IsExcluded,
 	)
 	return i, err
 }
@@ -861,7 +865,7 @@ func (q *Queries) ListTransactionTypes(ctx context.Context) ([]TransactionType, 
 const listTransactions = `-- name: ListTransactions :many
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 FROM transaction
 WHERE budget_period_id = $1::uuid
   AND ($2::int IS NULL OR category_id = $2)
@@ -905,6 +909,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.PaidDate,
 			&i.FixedExpenseID,
 			&i.PlaidTransactionID,
+			&i.IsExcluded,
 		); err != nil {
 			return nil, err
 		}
@@ -925,7 +930,7 @@ WHERE id = $3::uuid
   AND budget_period_id = $4::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 `
 
 type MarkTransactionAsPaidParams struct {
@@ -960,6 +965,48 @@ func (q *Queries) MarkTransactionAsPaid(ctx context.Context, arg MarkTransaction
 		&i.PaidDate,
 		&i.FixedExpenseID,
 		&i.PlaidTransactionID,
+		&i.IsExcluded,
+	)
+	return i, err
+}
+
+const setTransactionExcluded = `-- name: SetTransactionExcluded :one
+UPDATE transaction
+SET is_excluded = $1::bool
+WHERE id = $2::uuid
+  AND budget_period_id = $3::uuid
+RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
+`
+
+type SetTransactionExcludedParams struct {
+	Excluded       bool      `json:"excluded"`
+	ID             uuid.UUID `json:"id"`
+	BudgetPeriodID uuid.UUID `json:"budget_period_id"`
+}
+
+func (q *Queries) SetTransactionExcluded(ctx context.Context, arg SetTransactionExcludedParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, setTransactionExcluded, arg.Excluded, arg.ID, arg.BudgetPeriodID)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Amount,
+		&i.PlannedAmount,
+		&i.Date,
+		&i.RenewalDate,
+		&i.Recurring,
+		&i.BudgetPeriodID,
+		&i.CategoryID,
+		&i.PaymentMethodID,
+		&i.TransactionFrequencyID,
+		&i.TransactionTypeID,
+		&i.IsPaid,
+		&i.PaidDate,
+		&i.FixedExpenseID,
+		&i.PlaidTransactionID,
+		&i.IsExcluded,
 	)
 	return i, err
 }
@@ -973,7 +1020,7 @@ WHERE id = $1::uuid
   AND budget_period_id = $2::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 `
 
 type UnmarkTransactionAsPaidParams struct {
@@ -1001,6 +1048,7 @@ func (q *Queries) UnmarkTransactionAsPaid(ctx context.Context, arg UnmarkTransac
 		&i.PaidDate,
 		&i.FixedExpenseID,
 		&i.PlaidTransactionID,
+		&i.IsExcluded,
 	)
 	return i, err
 }
@@ -1142,7 +1190,7 @@ SET name = $2, amount = $3, planned_amount = $4, date = $5, recurring = $6,
 WHERE id = $1
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 `
 
 type UpdateTransactionParams struct {
@@ -1189,6 +1237,7 @@ func (q *Queries) UpdateTransaction(ctx context.Context, arg UpdateTransactionPa
 		&i.PaidDate,
 		&i.FixedExpenseID,
 		&i.PlaidTransactionID,
+		&i.IsExcluded,
 	)
 	return i, err
 }

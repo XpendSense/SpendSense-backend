@@ -87,7 +87,7 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 		plaidID := tx.PlaidID
 		periodID := period.ID
 
-		categoryName := plaidclient.ResolvePlaidCategory(tx.PFCPrimary, tx.PFCDetailed)
+		categoryName := syncResolveCategory(tx.Name, tx.PFCPrimary, tx.PFCDetailed)
 		var categoryID *int32
 		if categoryName != "" {
 			if id, ok := categoryIDs[categoryName]; ok {
@@ -209,6 +209,17 @@ func syncAmountToNumeric(f float64) pgtype.Numeric {
 
 func syncBoolPtr(b bool) *bool    { return &b }
 func syncInt32Ptr(i int32) *int32 { return &i }
+
+// syncResolveCategory resolves the system category for an imported transaction.
+// A name containing "payroll" is treated as income regardless of Plaid's own
+// personal-finance-category classification, since payroll deposits should
+// never count toward the spending total.
+func syncResolveCategory(name, pfcPrimary, pfcDetailed string) string {
+	if strings.Contains(strings.ToLower(name), "payroll") {
+		return "Income"
+	}
+	return plaidclient.ResolvePlaidCategory(pfcPrimary, pfcDetailed)
+}
 
 func syncAmountWithinTolerance(txAmount float64, fe *db.FixedExpense) bool {
 	feAmt, err := fe.PlannedAmount.Float64Value()

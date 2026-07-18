@@ -97,3 +97,14 @@ func TestSyncNameWordsOverlap(t *testing.T) {
 	assert.True(t, syncNameWordsOverlap("renewal membership fee", "amex renewal"))
 	assert.False(t, syncNameWordsOverlap("patreon", "creator support subscription"))
 }
+
+func TestSyncResolveCategory_PayrollNameOverridesPFCCategory(t *testing.T) {
+	assert.Equal(t, "Income", syncResolveCategory("ACME CORP PAYROLL", "TRANSFER_IN", "TRANSFER_IN_DEPOSIT"))
+	assert.Equal(t, "Income", syncResolveCategory("payroll deposit", "", ""))
+	assert.Equal(t, "Income", syncResolveCategory("Bi-Weekly Payroll", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_PET_SUPPLIES"))
+}
+
+func TestSyncResolveCategory_NonPayrollFallsBackToPFCMapping(t *testing.T) {
+	assert.Equal(t, "Groceries", syncResolveCategory("WHOLE FOODS", "FOOD_AND_DRINK", "FOOD_AND_DRINK_GROCERIES"))
+	assert.Equal(t, "", syncResolveCategory("UNKNOWN MERCHANT", "", ""))
+}
