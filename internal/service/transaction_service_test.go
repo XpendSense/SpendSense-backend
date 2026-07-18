@@ -35,6 +35,7 @@ type mockTransactionRepo struct {
 	deleteSavingsSourceTransactions     func(context.Context, db.DeleteSavingsSourceTransactionsParams) error
 	markAsPaid                          func(context.Context, db.MarkTransactionAsPaidParams) (db.Transaction, error)
 	unmarkAsPaid                        func(context.Context, db.UnmarkTransactionAsPaidParams) (db.Transaction, error)
+	setExcluded                         func(context.Context, db.SetTransactionExcludedParams) (db.Transaction, error)
 	createPaymentMethodFromPlaid        func(context.Context, db.CreatePaymentMethodFromPlaidParams) (db.PaymentMethod, error)
 	getPaymentMethodByPlaidAccountID    func(context.Context, string) (db.PaymentMethod, error)
 	getPaymentMethodByUserAndName       func(context.Context, uuid.UUID, string) (db.PaymentMethod, error)
@@ -277,6 +278,13 @@ func (m *mockTransactionRepo) MarkAsPaid(ctx context.Context, arg db.MarkTransac
 func (m *mockTransactionRepo) UnmarkAsPaid(ctx context.Context, arg db.UnmarkTransactionAsPaidParams) (db.Transaction, error) {
 	if m.unmarkAsPaid != nil {
 		return m.unmarkAsPaid(ctx, arg)
+	}
+	return db.Transaction{}, nil
+}
+
+func (m *mockTransactionRepo) SetExcluded(ctx context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
+	if m.setExcluded != nil {
+		return m.setExcluded(ctx, arg)
 	}
 	return db.Transaction{}, nil
 }
@@ -978,6 +986,65 @@ func TestUnmarkTransactionAsPaid_Forbidden_WhenNotOwner(t *testing.T) {
 	)
 
 	_, err := svc.UnmarkTransactionAsPaid(context.Background(), uuid.New(), periodID, uuid.New())
+	require.Error(t, err)
+	var forbidden *apperr.ForbiddenError
+	require.ErrorAs(t, err, &forbidden)
+}
+
+func TestSetTransactionExcluded_Success(t *testing.T) {
+	userID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	txID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{
+			setExcluded: func(_ context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
+				assert.Equal(t, txID, arg.ID)
+				assert.Equal(t, periodID, arg.BudgetPeriodID)
+				assert.True(t, arg.Excluded)
+				return db.Transaction{ID: txID, IsExcluded: arg.Excluded}, nil
+			},
+		},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: userID}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	tx, err := svc.SetTransactionExcluded(context.Background(), txID, periodID, true, userID)
+	require.NoError(t, err)
+	assert.Equal(t, txID, tx.ID)
+	assert.True(t, tx.IsExcluded)
+}
+
+func TestSetTransactionExcluded_Forbidden_WhenNotOwner(t *testing.T) {
+	profileID := uuid.New()
+	periodID := uuid.New()
+
+	svc := NewTransactionService(
+		&mockTransactionRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByID: func(_ context.Context, id uuid.UUID) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: id, BudgetProfileID: profileID}, nil
+			},
+			getByID: func(_ context.Context, _ uuid.UUID) (db.BudgetProfile, error) {
+				return db.BudgetProfile{ID: profileID, UserID: uuid.New()}, nil
+			},
+		},
+		&mockExpenseAllocationRepo{},
+		&mockFixedExpenseRepo{},
+		&mockTransactionReviewRepo{},
+	)
+
+	_, err := svc.SetTransactionExcluded(context.Background(), uuid.New(), periodID, true, uuid.New())
 	require.Error(t, err)
 	var forbidden *apperr.ForbiddenError
 	require.ErrorAs(t, err, &forbidden)

@@ -283,6 +283,20 @@ func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uui
 	return tx, nil
 }
 
+// SetTransactionExcluded toggles whether a transaction counts toward totals
+// without deleting it (e.g. reimbursements, transfers, or anything else that
+// would otherwise disrupt the spending total).
+func (s *TransactionService) SetTransactionExcluded(ctx context.Context, id uuid.UUID, periodID uuid.UUID, excluded bool, userID uuid.UUID) (db.Transaction, error) {
+	if err := s.assertPeriodCollaborator(ctx, periodID, userID); err != nil {
+		return db.Transaction{}, err
+	}
+	return s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
+		ID:             id,
+		BudgetPeriodID: periodID,
+		Excluded:       excluded,
+	})
+}
+
 func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replacementID, budgetProfileID, userID uuid.UUID) error {
 	if err := s.assertProfileCollaborator(ctx, budgetProfileID, userID); err != nil {
 		return err

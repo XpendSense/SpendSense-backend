@@ -207,6 +207,7 @@ type Transaction struct {
 	PaidDate               pgtype.Date    `json:"paid_date"`
 	FixedExpenseID         *uuid.UUID     `json:"fixed_expense_id"`
 	PlaidTransactionID     *string        `json:"plaid_transaction_id"`
+	IsExcluded             bool           `json:"is_excluded"`
 }
 
 type TransactionFrequency struct {

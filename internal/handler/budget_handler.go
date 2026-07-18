@@ -230,6 +230,26 @@ func (h *BudgetHandler) UnmarkTransactionAsPaid(ctx context.Context, req *connec
 	return connect.NewResponse(&v1.UnmarkTransactionAsPaidResponse{Transaction: toProtoTransaction(tx)}), nil
 }
 
+func (h *BudgetHandler) SetTransactionExcluded(ctx context.Context, req *connect.Request[v1.SetTransactionExcludedRequest]) (*connect.Response[v1.SetTransactionExcludedResponse], error) {
+	userID, err := h.currentUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(req.Msg.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	periodID, err := uuid.Parse(req.Msg.BudgetPeriodId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	tx, svcErr := h.transactions.SetTransactionExcluded(ctx, id, periodID, req.Msg.Excluded, userID)
+	if svcErr != nil {
+		return nil, toConnectError(svcErr)
+	}
+	return connect.NewResponse(&v1.SetTransactionExcludedResponse{Transaction: toProtoTransaction(tx)}), nil
+}
+
 // ── Categories ────────────────────────────────────────────────────────────────
 
 func (h *BudgetHandler) ListCategories(ctx context.Context, req *connect.Request[v1.ListCategoriesRequest]) (*connect.Response[v1.ListCategoriesResponse], error) {
@@ -466,6 +486,7 @@ func toProtoTransaction(t db.Transaction) *v1.Transaction {
 		TransactionFrequencyId: ptrInt32OrZero(t.TransactionFrequencyID),
 		TransactionTypeId:      ptrInt32OrZero(t.TransactionTypeID),
 		IsPaid:                 t.IsPaid,
+		IsExcluded:             t.IsExcluded,
 	}
 	if t.PaidDate.Valid {
 		proto.PaidAt = protoTSFromDate(t.PaidDate)

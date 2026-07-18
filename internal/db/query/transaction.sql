@@ -1,7 +1,7 @@
 -- name: ListTransactions :many
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 FROM transaction
 WHERE budget_period_id = sqlc.arg('budget_period_id')::uuid
   AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
@@ -15,7 +15,7 @@ ORDER BY date DESC NULLS LAST;
 -- name: GetTransactionByID :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 FROM transaction
 WHERE id = $1
 LIMIT 1;
@@ -28,7 +28,7 @@ INSERT INTO transaction (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded;
 
 -- name: UpdateTransaction :one
 UPDATE transaction
@@ -37,7 +37,7 @@ SET name = $2, amount = $3, planned_amount = $4, date = $5, recurring = $6,
 WHERE id = $1
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded;
 
 -- name: DeleteTransaction :exec
 DELETE FROM transaction
@@ -52,7 +52,7 @@ WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded;
 
 -- name: UnmarkTransactionAsPaid :one
 UPDATE transaction
@@ -63,7 +63,16 @@ WHERE id = sqlc.arg('id')::uuid
   AND budget_period_id = sqlc.arg('budget_period_id')::uuid
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded;
+
+-- name: SetTransactionExcluded :one
+UPDATE transaction
+SET is_excluded = sqlc.arg('excluded')::bool
+WHERE id = sqlc.arg('id')::uuid
+  AND budget_period_id = sqlc.arg('budget_period_id')::uuid
+RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
+          budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded;
 
 -- Deletes auto-created savings transactions when a savings source is removed.
 -- Matches by name, payment method, and category within non-archived periods.
@@ -258,12 +267,12 @@ INSERT INTO transaction (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id, name, amount, planned_amount, date, renewal_date, recurring,
           budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-          is_paid, paid_date, fixed_expense_id, plaid_transaction_id;
+          is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded;
 
 -- name: GetTransactionByPlaidID :one
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
-       is_paid, paid_date, fixed_expense_id, plaid_transaction_id
+       is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
 FROM transaction
 WHERE plaid_transaction_id = $1
 LIMIT 1;
