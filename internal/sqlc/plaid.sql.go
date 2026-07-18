@@ -120,12 +120,15 @@ const listActivePlaidItemsForSync = `-- name: ListActivePlaidItemsForSync :many
 SELECT id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
        status, cursor, last_synced_at, created_at
 FROM plaid_item
-WHERE status = 'active'
+WHERE status IN ('active', 'error')
   AND (last_synced_at IS NULL OR last_synced_at < NOW() - INTERVAL '1 day')
 ORDER BY last_synced_at ASC NULLS FIRST
 `
 
-// Returns all active items due for a sync (never synced, or last sync older than 1 day).
+// Returns all active or previously-errored items due for a sync (never
+// synced, or last sync older than 1 day). 'error' is included so a failed
+// item keeps retrying on schedule instead of being silently abandoned —
+// only an explicit disconnect (status='disconnected') stops future syncs.
 func (q *Queries) ListActivePlaidItemsForSync(ctx context.Context) ([]PlaidItem, error) {
 	rows, err := q.db.Query(ctx, listActivePlaidItemsForSync)
 	if err != nil {
@@ -272,7 +275,7 @@ func (q *Queries) UpdatePlaidItemStatus(ctx context.Context, arg UpdatePlaidItem
 
 const updatePlaidItemSync = `-- name: UpdatePlaidItemSync :one
 UPDATE plaid_item
-SET cursor = $1, last_synced_at = NOW()
+SET cursor = $1, last_synced_at = NOW(), status = 'active'
 WHERE id = $2::uuid
 RETURNING id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
           status, cursor, last_synced_at, created_at
@@ -283,6 +286,8 @@ type UpdatePlaidItemSyncParams struct {
 	ID     uuid.UUID `json:"id"`
 }
 
+// UpdatePlaidItemSync is only called after a successful SyncTransactions
+// call, so it also clears a prior 'error' status back to 'active'.
 func (q *Queries) UpdatePlaidItemSync(ctx context.Context, arg UpdatePlaidItemSyncParams) (PlaidItem, error) {
 	row := q.db.QueryRow(ctx, updatePlaidItemSync, arg.Cursor, arg.ID)
 	var i PlaidItem
