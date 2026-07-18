@@ -32,12 +32,15 @@ FROM plaid_item
 WHERE budget_profile_id = $1
 ORDER BY created_at DESC;
 
--- Returns all active items due for a sync (never synced, or last sync older than 1 day).
+-- Returns all active or previously-errored items due for a sync (never
+-- synced, or last sync older than 1 day). 'error' is included so a failed
+-- item keeps retrying on schedule instead of being silently abandoned —
+-- only an explicit disconnect (status='disconnected') stops future syncs.
 -- name: ListActivePlaidItemsForSync :many
 SELECT id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
        status, cursor, last_synced_at, created_at
 FROM plaid_item
-WHERE status = 'active'
+WHERE status IN ('active', 'error')
   AND (last_synced_at IS NULL OR last_synced_at < NOW() - INTERVAL '1 day')
 ORDER BY last_synced_at ASC NULLS FIRST;
 
@@ -48,9 +51,11 @@ WHERE id = $1
 RETURNING id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
           status, cursor, last_synced_at, created_at;
 
+-- UpdatePlaidItemSync is only called after a successful SyncTransactions
+-- call, so it also clears a prior 'error' status back to 'active'.
 -- name: UpdatePlaidItemSync :one
 UPDATE plaid_item
-SET cursor = sqlc.arg('cursor'), last_synced_at = NOW()
+SET cursor = sqlc.arg('cursor'), last_synced_at = NOW(), status = 'active'
 WHERE id = sqlc.arg('id')::uuid
 RETURNING id, user_id, budget_profile_id, access_token, item_id, institution_id, institution_name,
           status, cursor, last_synced_at, created_at;
