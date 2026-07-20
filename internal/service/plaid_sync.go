@@ -88,13 +88,7 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 		plaidID := tx.PlaidID
 		periodID := period.ID
 
-		categoryName := syncResolveCategory(tx.Name, tx.PFCPrimary, tx.PFCDetailed)
-		var categoryID *int32
-		if categoryName != "" {
-			if id, ok := categoryIDs[categoryName]; ok {
-				categoryID = &id
-			}
-		}
+		categoryName, categoryID := syncResolveCategoryID(tx.Name, tx.PFCPrimary, tx.PFCDetailed, categoryIDs)
 
 		var paymentMethodID *uuid.UUID
 		if tx.AccountID != "" {
@@ -127,7 +121,7 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 			log.Printf("plaid item %s: insert tx %s: %v", item.ID, tx.PlaidID, err)
 			continue
 		}
-		log.Printf("plaid item %s: imported %q  %s  $%.2f  category=%q", item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, categoryName)
+		log.Printf("plaid item %s: imported %q  %s  $%.2f  category=%s", item.ID, tx.Name, tx.Date.Format("2006-01-02"), tx.Amount, syncCategoryLogValue(categoryName, categoryID))
 		importedAdded++
 
 		bestScore, bestFE, bestAliasHit, bestAmountOK := syncScoreBestMatch(tx, categoryID, paymentMethodID, fixedExpenses, aliasesByFE)
@@ -228,6 +222,38 @@ func syncResolveCategory(name, pfcPrimary, pfcDetailed string) string {
 		return "Income"
 	}
 	return plaidclient.ResolvePlaidCategory(pfcPrimary, pfcDetailed)
+}
+
+// syncResolveCategoryID resolves a transaction's category name and looks up
+// its ID in the system-category map. A non-empty name with a nil ID means
+// the resolved name has no matching system category — the transaction still
+// imports, just without a category — which is otherwise invisible unless
+// distinguished from a clean resolution (see syncCategoryLogValue).
+func syncResolveCategoryID(txName, pfcPrimary, pfcDetailed string, categoryIDs map[string]int32) (categoryName string, categoryID *int32) {
+	categoryName = syncResolveCategory(txName, pfcPrimary, pfcDetailed)
+	if categoryName == "" {
+		return "", nil
+	}
+	if id, ok := categoryIDs[categoryName]; ok {
+		return categoryName, &id
+	}
+	return categoryName, nil
+}
+
+// syncCategoryLogValue renders the outcome of category resolution for the
+// per-transaction import log. Printing the resolved name unconditionally
+// (regardless of whether it actually mapped to an ID) would make an
+// "unmapped" transaction — imported with no category — indistinguishable
+// from a correctly categorized one in the logs.
+func syncCategoryLogValue(categoryName string, categoryID *int32) string {
+	switch {
+	case categoryID != nil:
+		return fmt.Sprintf("%q", categoryName)
+	case categoryName != "":
+		return fmt.Sprintf("%q (unmapped — no matching system category, imported without a category)", categoryName)
+	default:
+		return "none"
+	}
 }
 
 func syncAmountWithinTolerance(txAmount float64, fe *db.FixedExpense) bool {
