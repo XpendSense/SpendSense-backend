@@ -112,6 +112,37 @@ func TestSyncResolveCategory_NonPayrollFallsBackToPFCMapping(t *testing.T) {
 	assert.Equal(t, "", syncResolveCategory("UNKNOWN MERCHANT", "", ""))
 }
 
+func TestSyncResolveCategoryID_ResolvesToKnownID(t *testing.T) {
+	categoryIDs := map[string]int32{"Shopping": 7}
+	name, id := syncResolveCategoryID("AMAZON.COM", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES", categoryIDs)
+	assert.Equal(t, "Shopping", name)
+	require.NotNil(t, id)
+	assert.Equal(t, int32(7), *id)
+}
+
+func TestSyncResolveCategoryID_UnmappedNameReturnsNilID(t *testing.T) {
+	// Resolves to "Shopping" but the system-category map doesn't have it —
+	// this is exactly the scenario that silently drops the category: the
+	// transaction still imports, just with category_id NULL.
+	categoryIDs := map[string]int32{"Groceries": 3}
+	name, id := syncResolveCategoryID("AMAZON.COM", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES", categoryIDs)
+	assert.Equal(t, "Shopping", name)
+	assert.Nil(t, id)
+}
+
+func TestSyncResolveCategoryID_NoResolvedNameReturnsEmpty(t *testing.T) {
+	name, id := syncResolveCategoryID("UNKNOWN MERCHANT", "", "", map[string]int32{})
+	assert.Equal(t, "", name)
+	assert.Nil(t, id)
+}
+
+func TestSyncCategoryLogValue(t *testing.T) {
+	id := int32(7)
+	assert.Equal(t, `"Shopping"`, syncCategoryLogValue("Shopping", &id))
+	assert.Equal(t, `"Shopping" (unmapped — no matching system category, imported without a category)`, syncCategoryLogValue("Shopping", nil))
+	assert.Equal(t, "none", syncCategoryLogValue("", nil))
+}
+
 func TestSyncItem_ReturnsErrorWhenCursorPersistFails(t *testing.T) {
 	itemID := uuid.New()
 	profileID := uuid.New()
