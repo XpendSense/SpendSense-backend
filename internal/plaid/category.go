@@ -31,21 +31,33 @@ var plaidDetailedToCategory = map[string]string{
 // to SpendSense system category names. Used as a fallback when the detailed
 // key has no specific override.
 var plaidPrimaryToCategory = map[string]string{
-	"FOOD_AND_DRINK":           "Eating Out",
-	"GENERAL_MERCHANDISE":      "Shopping",
-	"HOME_IMPROVEMENT":         "House",
-	"MEDICAL":                  "Wellness",
-	"PERSONAL_CARE":            "Wellness",
-	"GENERAL_SERVICES":         "Services",
-	"TRANSPORTATION":           "Misc",
-	"TRAVEL":                   "Travel",
-	"RENT_AND_UTILITIES":       "Rent",
-	"ENTERTAINMENT":            "Entertainment",
-	"BANK_FEES":                "Misc",
+	"FOOD_AND_DRINK":            "Eating Out",
+	"GENERAL_MERCHANDISE":       "Shopping",
+	"HOME_IMPROVEMENT":          "House",
+	"MEDICAL":                   "Wellness",
+	"PERSONAL_CARE":             "Wellness",
+	"GENERAL_SERVICES":          "Services",
+	"TRANSPORTATION":            "Misc",
+	"TRAVEL":                    "Travel",
+	"RENT_AND_UTILITIES":        "Rent",
+	"ENTERTAINMENT":             "Entertainment",
+	"BANK_FEES":                 "Misc",
 	"GOVERNMENT_AND_NON_PROFIT": "Misc",
-	// INCOME, TRANSFER_IN, TRANSFER_OUT, LOAN_PAYMENTS are excluded before
-	// this lookup is ever reached (see isCreditCardPayment for the one case
-	// we do filter — the rest are intentionally kept).
+	// INCOME covers Plaid's own wages/dividends/interest/refund/etc.
+	// classification — mapping it here means a payroll deposit is recognized
+	// as Income from Plaid's PFC data alone, without depending on the
+	// transaction name containing the literal word "payroll" (see
+	// syncResolveCategory in internal/service/plaid_sync.go for that
+	// name-based override, kept as a fallback for accounts where Plaid
+	// doesn't return personal_finance_category data at all).
+	"INCOME": "Income",
+	// TRANSFER_OUT and LOAN_PAYMENTS are intentionally left unmapped — credit
+	// card bill payments are filtered separately (see isCreditCardPayment in
+	// client.go); other transfers/loan payments fall through to uncategorized
+	// rather than being guessed at. TRANSFER_IN is also left unmapped since it
+	// covers ordinary transfers between the user's own accounts, not just
+	// income, and mislabeling those as Income would incorrectly exclude real
+	// inbound transfers from spend totals.
 }
 
 // ResolvePlaidCategory returns the SpendSense system category name for a Plaid

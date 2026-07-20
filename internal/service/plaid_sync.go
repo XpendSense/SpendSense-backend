@@ -214,9 +214,11 @@ func syncBoolPtr(b bool) *bool    { return &b }
 func syncInt32Ptr(i int32) *int32 { return &i }
 
 // syncResolveCategory resolves the system category for an imported transaction.
-// A name containing "payroll" is treated as income regardless of Plaid's own
-// personal-finance-category classification, since payroll deposits should
-// never count toward the spending total.
+// Plaid's own personal_finance_category classification (INCOME -> "Income",
+// see plaidclient.ResolvePlaidCategory) is the primary signal. A name
+// containing "payroll" is checked first as a fallback override for accounts
+// where Plaid doesn't return personal_finance_category data at all, since
+// payroll deposits should never count toward the spending total either way.
 func syncResolveCategory(name, pfcPrimary, pfcDetailed string) string {
 	if strings.Contains(strings.ToLower(name), "payroll") {
 		return "Income"
