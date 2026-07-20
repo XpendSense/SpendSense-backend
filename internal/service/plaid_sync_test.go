@@ -112,6 +112,14 @@ func TestSyncResolveCategory_NonPayrollFallsBackToPFCMapping(t *testing.T) {
 	assert.Equal(t, "", syncResolveCategory("UNKNOWN MERCHANT", "", ""))
 }
 
+func TestSyncResolveCategory_IncomePFCPrimaryResolvesWithoutPayrollInName(t *testing.T) {
+	// A direct-deposit paycheck whose name never says "payroll" (e.g. the
+	// employer's legal entity name) must still resolve to Income via Plaid's
+	// own personal_finance_category classification, not just the name check.
+	assert.Equal(t, "Income", syncResolveCategory("ACME CORP DIRECT DEP", "INCOME", "INCOME_WAGES"))
+	assert.Equal(t, "Income", syncResolveCategory("IRS TREAS 310 TAX REF", "INCOME", "INCOME_TAX_REFUND"))
+}
+
 func TestSyncResolveCategoryID_ResolvesToKnownID(t *testing.T) {
 	categoryIDs := map[string]int32{"Shopping": 7}
 	name, id := syncResolveCategoryID("AMAZON.COM", "GENERAL_MERCHANDISE", "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES", categoryIDs)
