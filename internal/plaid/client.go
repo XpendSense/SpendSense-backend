@@ -178,6 +178,10 @@ func (c *client) GetAccounts(ctx context.Context, accessToken string) ([]Account
 	return accounts, institutionID, nil
 }
 
+// maxSyncPageSize is Plaid's documented maximum for the /transactions/sync
+// `count` parameter (default is 100 if unset).
+const maxSyncPageSize = 500
+
 // maxSyncPaginationRestarts bounds how many times SyncTransactions will
 // restart a full paginated fetch after a TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION
 // error, Plaid's documented recovery for that error.
@@ -235,6 +239,12 @@ func (c *client) syncTransactionsAllPages(ctx context.Context, accessToken, curs
 		if cursor != "" {
 			req.SetCursor(cursor)
 		}
+		// Plaid's default page size is 100; raising it toward the documented max
+		// (500) means fewer pages per sync, which is Plaid's own recommended
+		// mitigation for TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION — a smaller
+		// number of round trips gives underlying transaction data less time to
+		// change mid-fetch.
+		req.SetCount(maxSyncPageSize)
 		// Explicitly request personal_finance_category — without this flag some
 		// Plaid integrations return nil PFC, causing the credit-card-payment filter
 		// to silently pass through those transactions.

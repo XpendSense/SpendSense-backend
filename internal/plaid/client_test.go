@@ -71,6 +71,29 @@ func TestSyncTransactions_FollowsHasMoreAcrossPages(t *testing.T) {
 	}
 }
 
+func TestSyncTransactions_RequestsMaxPageSize(t *testing.T) {
+	var receivedCount *int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Count *int32 `json:"count"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		receivedCount = body.Count
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"added":[],"modified":[],"removed":[],"next_cursor":"c1","has_more":false,"request_id":"r1"}`)
+	}))
+	defer server.Close()
+
+	c := newTestClient(server)
+	if _, _, _, _, err := c.SyncTransactions(t.Context(), "access-token", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedCount == nil || *receivedCount != maxSyncPageSize {
+		t.Fatalf("count = %v, want %d (Plaid's documented max, to minimize pagination pages)", receivedCount, maxSyncPageSize)
+	}
+}
+
 func TestSyncTransactions_RestartsOnMutationDuringPagination(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
