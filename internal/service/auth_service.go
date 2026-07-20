@@ -175,11 +175,14 @@ func (s *AuthService) GoogleExchange(ctx context.Context, code, redirectURI, lan
 		userCurrency = existing.Currency
 	}
 
-	token, err := s.jwt.GenerateTokenWithLifetime(userID, defaultTokenLifetime)
+	// Google OAuth has no "remember me" UI — always issue a persistent token
+	// so the session lifetime matches what a user would get by checking
+	// "remember me" on the email/password login form.
+	token, err := s.jwt.GenerateTokenWithLifetime(userID, rememberMeTokenLifetime)
 	if err != nil {
 		return GoogleExchangeResult{}, fmt.Errorf("auth: generate token: %w", err)
 	}
-	return GoogleExchangeResult{AccessToken: token, ExpiresIn: int64(defaultTokenLifetime.Seconds()), IsNewUser: isNew, Language: userLang, Currency: userCurrency}, nil
+	return GoogleExchangeResult{AccessToken: token, ExpiresIn: int64(rememberMeTokenLifetime.Seconds()), IsNewUser: isNew, Language: userLang, Currency: userCurrency}, nil
 }
 
 func (s *AuthService) GoogleAuthURL(state string) string {
