@@ -143,11 +143,21 @@ func (s *PlaidService) SyncItem(ctx context.Context, item db.PlaidItem) error {
 				Amount:         unpaid.PlannedAmount,
 				PaidDate:       unpaid.Date,
 			})
-			_ = s.transactions.Delete(ctx, db.DeleteTransactionParams{
+			// Record the auto-match as a confirmed review — same as a user
+			// manually confirming one from the To Review tab — so it can be
+			// found and undone if the fixed expense is later unmarked as
+			// paid (see UnmarkTransactionAsPaid). Exclude the imported
+			// transaction from totals instead of deleting it outright, so
+			// it stays visible and recoverable rather than being
+			// permanently lost, matching ConfirmTransactionReview.
+			if review, rErr := s.reviews.Create(ctx, periodID, inserted.ID, unpaid.ID, bestScore); rErr == nil {
+				_ = s.reviews.UpdateStatus(ctx, review.ID, "confirmed")
+			}
+			_, _ = s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
 				ID:             inserted.ID,
-				BudgetPeriodID: &periodID,
+				BudgetPeriodID: periodID,
+				Excluded:       true,
 			})
-			importedAdded--
 			autoConfirmed++
 			log.Printf("plaid item %s: auto-confirmed %q (alias+amount → %q)", item.ID, tx.Name, bestFE.Name)
 		case bestScore >= 80 && hasUnpaidTarget:

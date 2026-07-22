@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -181,4 +182,91 @@ func TestSyncItem_ReturnsErrorWhenCursorPersistFails(t *testing.T) {
 
 	require.Error(t, syncErr, "a failure to persist the new cursor must surface as a sync failure, not be silently swallowed")
 	assert.Contains(t, syncErr.Error(), "persist cursor")
+}
+
+func TestSyncItem_AutoConfirmedMatch_ExcludesInsteadOfDeleting(t *testing.T) {
+	itemID := uuid.New()
+	profileID := uuid.New()
+	periodID := uuid.New()
+	feID := uuid.New()
+	unpaidTxID := uuid.New()
+	insertedTxID := uuid.New()
+	encrypted, err := crypto.Encrypt("real-access-token", testEncKey)
+	require.NoError(t, err)
+
+	var deleteCalled bool
+	var excludedID uuid.UUID
+	var excludedFlag bool
+	var markedPaidID uuid.UUID
+	var confirmedReviewID uuid.UUID
+	var confirmedStatus string
+
+	svc := NewPlaidService(
+		&mockPlaidClient{
+			syncTransactions: func(_ context.Context, _, _ string) ([]plaidclient.Transaction, []plaidclient.Transaction, []string, string, error) {
+				return []plaidclient.Transaction{
+					{PlaidID: "plaid-tx-1", Name: "Patreon", Amount: 15.00, Date: time.Now()},
+				}, nil, nil, "new-cursor", nil
+			},
+		},
+		&mockPlaidRepo{},
+		&mockBudgetProfileRepo{
+			getPeriodByDate: func(_ context.Context, _ uuid.UUID, _ pgtype.Date) (db.BudgetPeriod, error) {
+				return db.BudgetPeriod{ID: periodID}, nil
+			},
+		},
+		nil, // users — unreached
+		&mockTransactionRepo{
+			createTransactionFromPlaid: func(_ context.Context, _ db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+				return db.Transaction{ID: insertedTxID}, nil
+			},
+			markAsPaid: func(_ context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
+				markedPaidID = arg.ID
+				return db.Transaction{ID: arg.ID}, nil
+			},
+			setExcluded: func(_ context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
+				excludedID = arg.ID
+				excludedFlag = arg.Excluded
+				return db.Transaction{ID: arg.ID, IsExcluded: arg.Excluded}, nil
+			},
+			delete: func(_ context.Context, _ db.DeleteTransactionParams) error {
+				deleteCalled = true
+				return nil
+			},
+		},
+		&mockFixedExpenseRepo{
+			list: func(_ context.Context, _ uuid.UUID) ([]db.FixedExpense, error) {
+				return []db.FixedExpense{makeFixedExpense(t, feID, "Creator Support", "15.00")}, nil
+			},
+			getUnpaidTransaction: func(_ context.Context, _ db.GetUnpaidTransactionByFixedExpenseParams) (db.Transaction, error) {
+				return db.Transaction{ID: unpaidTxID, BudgetPeriodID: &periodID, PlannedAmount: numericFromString(t, "15.00")}, nil
+			},
+		},
+		&mockTransactionReviewRepo{
+			listAliases: func(_ context.Context, _ uuid.UUID) ([]string, error) {
+				return []string{"Patreon"}, nil
+			},
+			create: func(_ context.Context, _, transactionID, matchedTransactionID uuid.UUID, _ float64) (db.TransactionReview, error) {
+				reviewID := uuid.New()
+				confirmedReviewID = reviewID
+				return db.TransactionReview{ID: reviewID, TransactionID: transactionID, MatchedTransactionID: matchedTransactionID}, nil
+			},
+			updateStatus: func(_ context.Context, id uuid.UUID, status string) error {
+				assert.Equal(t, confirmedReviewID, id, "should confirm the review just created for this auto-match")
+				confirmedStatus = status
+				return nil
+			},
+		},
+		testEncKey,
+	)
+
+	item := db.PlaidItem{ID: itemID, BudgetProfileID: profileID, AccessToken: encrypted}
+	syncErr := svc.SyncItem(context.Background(), item)
+	require.NoError(t, syncErr)
+
+	assert.False(t, deleteCalled, "the auto-matched imported transaction must not be deleted")
+	assert.Equal(t, insertedTxID, excludedID, "should exclude the imported transaction, not the matched fixed one")
+	assert.True(t, excludedFlag)
+	assert.Equal(t, unpaidTxID, markedPaidID, "should mark the matched fixed transaction paid")
+	assert.Equal(t, "confirmed", confirmedStatus, "should record the auto-match as a confirmed review so unmarking paid can find and undo it")
 }

@@ -42,6 +42,8 @@ type mockTransactionRepo struct {
 	updatePaymentMethodPlaidAccountID   func(context.Context, uuid.UUID, string) error
 	listActivePaymentMethodsByPlaidItem func(context.Context, uuid.UUID) ([]db.PaymentMethod, error)
 	deactivatePaymentMethod             func(context.Context, uuid.UUID) error
+	createTransactionFromPlaid          func(context.Context, db.CreateTransactionFromPlaidParams) (db.Transaction, error)
+	existsTransactionByPlaidID          func(context.Context, *string) (bool, error)
 }
 
 // ── Mock fixed expense repo ───────────────────────────────────────────────────
@@ -290,10 +292,16 @@ func (m *mockTransactionRepo) SetExcluded(ctx context.Context, arg db.SetTransac
 }
 
 func (m *mockTransactionRepo) CreateTransactionFromPlaid(ctx context.Context, arg db.CreateTransactionFromPlaidParams) (db.Transaction, error) {
+	if m.createTransactionFromPlaid != nil {
+		return m.createTransactionFromPlaid(ctx, arg)
+	}
 	return db.Transaction{}, nil
 }
 
 func (m *mockTransactionRepo) ExistsTransactionByPlaidID(ctx context.Context, plaidTransactionID *string) (bool, error) {
+	if m.existsTransactionByPlaidID != nil {
+		return m.existsTransactionByPlaidID(ctx, plaidTransactionID)
+	}
 	return false, nil
 }
 
