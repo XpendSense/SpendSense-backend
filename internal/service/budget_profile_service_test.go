@@ -59,6 +59,7 @@ type mockBudgetProfileRepo struct {
 	deleteSavingsSource           func(context.Context, db.DeleteSavingsSourceParams) error
 	upsertTaxReserveSavingsSource func(context.Context, db.UpsertTaxReserveSavingsSourceParams) (db.SavingsSource, error)
 	deleteTaxReserveSavingsSource func(context.Context, uuid.UUID) error
+	getPeriodByDate               func(context.Context, uuid.UUID, pgtype.Date) (db.BudgetPeriod, error)
 }
 
 func (m *mockBudgetProfileRepo) ListByUserID(ctx context.Context, userID uuid.UUID) ([]db.BudgetProfile, error) {
@@ -306,6 +307,9 @@ func (m *mockBudgetProfileRepo) DeleteTaxReserveSavingsSource(ctx context.Contex
 }
 
 func (m *mockBudgetProfileRepo) GetPeriodByDate(ctx context.Context, profileID uuid.UUID, date pgtype.Date) (db.BudgetPeriod, error) {
+	if m.getPeriodByDate != nil {
+		return m.getPeriodByDate(ctx, profileID, date)
+	}
 	return db.BudgetPeriod{}, apperr.NotFound("budget_period", "date")
 }
 
