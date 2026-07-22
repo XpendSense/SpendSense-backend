@@ -870,10 +870,6 @@ FROM transaction
 WHERE budget_period_id = $1::uuid
   AND ($2::int IS NULL OR category_id = $2)
   AND ($3::int IS NULL OR transaction_type_id = $3)
-  AND NOT EXISTS (
-    SELECT 1 FROM transaction_review tr
-    WHERE tr.transaction_id = transaction.id AND tr.status = 'confirmed'
-  )
 ORDER BY date DESC NULLS LAST
 `
 
@@ -883,6 +879,11 @@ type ListTransactionsParams struct {
 	TransactionTypeID *int32    `json:"transaction_type_id"`
 }
 
+// A confirmed review's imported transaction is intentionally NOT filtered out
+// here — it stays visible and recoverable, same as an Income transaction.
+// ConfirmTransactionReview excludes it from totals via is_excluded instead of
+// hiding the row outright, so unmarking the matched fixed expense later never
+// leaves it stranded/unrecoverable behind a review-status side channel.
 func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]Transaction, error) {
 	rows, err := q.db.Query(ctx, listTransactions, arg.BudgetPeriodID, arg.CategoryID, arg.TransactionTypeID)
 	if err != nil {

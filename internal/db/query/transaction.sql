@@ -1,4 +1,9 @@
 -- name: ListTransactions :many
+-- A confirmed review's imported transaction is intentionally NOT filtered out
+-- here — it stays visible and recoverable, same as an Income transaction.
+-- ConfirmTransactionReview excludes it from totals via is_excluded instead of
+-- hiding the row outright, so unmarking the matched fixed expense later never
+-- leaves it stranded/unrecoverable behind a review-status side channel.
 SELECT id, name, amount, planned_amount, date, renewal_date, recurring,
        budget_period_id, category_id, payment_method_id, transaction_frequency_id, transaction_type_id,
        is_paid, paid_date, fixed_expense_id, plaid_transaction_id, is_excluded
@@ -6,10 +11,6 @@ FROM transaction
 WHERE budget_period_id = sqlc.arg('budget_period_id')::uuid
   AND (sqlc.narg('category_id')::int IS NULL OR category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('transaction_type_id')::int IS NULL OR transaction_type_id = sqlc.narg('transaction_type_id'))
-  AND NOT EXISTS (
-    SELECT 1 FROM transaction_review tr
-    WHERE tr.transaction_id = transaction.id AND tr.status = 'confirmed'
-  )
 ORDER BY date DESC NULLS LAST;
 
 -- name: GetTransactionByID :one

@@ -1319,6 +1319,8 @@ func TestConfirmTransactionReview_FixedExpenseMatch_MarksPaidAndSavesAlias(t *te
 	var aliasFEID uuid.UUID
 	var aliasText string
 	var confirmedStatus string
+	var excludedID uuid.UUID
+	var excludedFlag bool
 
 	svc := NewTransactionService(
 		&mockTransactionRepo{
@@ -1331,6 +1333,11 @@ func TestConfirmTransactionReview_FixedExpenseMatch_MarksPaidAndSavesAlias(t *te
 			markAsPaid: func(_ context.Context, arg db.MarkTransactionAsPaidParams) (db.Transaction, error) {
 				markedPaidID = arg.ID
 				return db.Transaction{ID: arg.ID}, nil
+			},
+			setExcluded: func(_ context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
+				excludedID = arg.ID
+				excludedFlag = arg.Excluded
+				return db.Transaction{ID: arg.ID, IsExcluded: arg.Excluded}, nil
 			},
 		},
 		&mockBudgetProfileRepo{
@@ -1365,6 +1372,8 @@ func TestConfirmTransactionReview_FixedExpenseMatch_MarksPaidAndSavesAlias(t *te
 	assert.Equal(t, feID, aliasFEID)
 	assert.Equal(t, importedName, aliasText)
 	assert.Equal(t, "confirmed", confirmedStatus)
+	assert.Equal(t, importedTxID, excludedID, "should exclude the imported transaction from totals, not the matched one")
+	assert.True(t, excludedFlag, "the imported transaction stays visible but excluded, same as Income — not hidden from ListTransactions")
 }
 
 func TestConfirmTransactionReview_SavingsMatch_MarksPaidWithoutAlias(t *testing.T) {
@@ -1474,6 +1483,8 @@ func TestUnmarkTransactionAsPaid_ResetsConfirmedReview(t *testing.T) {
 	var deletedAliasFEID uuid.UUID
 	var deletedAliasText string
 	var resetTxID uuid.UUID
+	var unexcludedID uuid.UUID
+	unexcludedFlag := true // sentinel so a missing call is visible as "true" in the assertion below
 
 	svc := NewTransactionService(
 		&mockTransactionRepo{
@@ -1482,6 +1493,11 @@ func TestUnmarkTransactionAsPaid_ResetsConfirmedReview(t *testing.T) {
 			},
 			getByID: func(_ context.Context, id uuid.UUID) (db.Transaction, error) {
 				return db.Transaction{ID: id, Name: &importedName}, nil
+			},
+			setExcluded: func(_ context.Context, arg db.SetTransactionExcludedParams) (db.Transaction, error) {
+				unexcludedID = arg.ID
+				unexcludedFlag = arg.Excluded
+				return db.Transaction{ID: arg.ID, IsExcluded: arg.Excluded}, nil
 			},
 		},
 		&mockBudgetProfileRepo{
@@ -1515,4 +1531,6 @@ func TestUnmarkTransactionAsPaid_ResetsConfirmedReview(t *testing.T) {
 	assert.Equal(t, txID, resetTxID)
 	assert.Equal(t, feID, deletedAliasFEID)
 	assert.Equal(t, importedName, deletedAliasText)
+	assert.Equal(t, importedTxID, unexcludedID, "should un-exclude the imported transaction, not the fixed one being unmarked")
+	assert.False(t, unexcludedFlag, "unmarking paid should restore the imported transaction to a normal, non-excluded row")
 }
