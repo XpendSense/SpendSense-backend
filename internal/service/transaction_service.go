@@ -270,14 +270,21 @@ func (s *TransactionService) UnmarkTransactionAsPaid(ctx context.Context, id uui
 	}
 
 	// If this transaction was a confirmed review's match target, undo the
-	// confirmation so the duplicate variable transaction reappears. Applies to
-	// any Fixed-type transaction — fixed-expense-spawned or savings-derived.
+	// confirmation: reset the review to pending and un-exclude the imported
+	// variable transaction from totals, restoring it to its normal
+	// awaiting-review state. Applies to any Fixed-type transaction —
+	// fixed-expense-spawned or savings-derived.
 	review, rErr := s.reviews.GetConfirmedByMatchedTransaction(ctx, tx.ID)
 	if rErr == nil {
 		if varTx, txErr := s.transactions.GetByID(ctx, review.TransactionID); txErr == nil && varTx.Name != nil && tx.FixedExpenseID != nil {
 			_ = s.reviews.DeleteAlias(ctx, *tx.FixedExpenseID, *varTx.Name)
 		}
 		_ = s.reviews.ResetByMatchedTransaction(ctx, tx.ID)
+		_, _ = s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
+			ID:             review.TransactionID,
+			BudgetPeriodID: review.BudgetPeriodID,
+			Excluded:       false,
+		})
 	}
 
 	return tx, nil
@@ -393,8 +400,17 @@ func (s *TransactionService) ConfirmTransactionReview(ctx context.Context, userI
 		}
 	}
 
-	// Mark the review confirmed — the variable transaction stays in the DB but
-	// ListTransactions filters it out while status = 'confirmed'.
+	// Exclude the imported variable transaction from totals — same mechanism
+	// as an Income transaction — instead of hiding it from ListTransactions
+	// entirely. It stays visible and toggleable, so unmarking the matched
+	// fixed expense later (which resets this review to "pending") never
+	// leaves it stranded behind a review-status side channel.
+	_, _ = s.transactions.SetExcluded(ctx, db.SetTransactionExcludedParams{
+		ID:             review.TransactionID,
+		BudgetPeriodID: review.BudgetPeriodID,
+		Excluded:       true,
+	})
+
 	return s.reviews.UpdateStatus(ctx, reviewID, "confirmed")
 }
 
