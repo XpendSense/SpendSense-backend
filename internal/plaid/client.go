@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	plaidSDK "github.com/plaid/plaid-go/v20/plaid"
@@ -72,12 +73,22 @@ type Options struct {
 	RetryDelay      time.Duration
 }
 
+// sanitizeCredential trims incidental whitespace and line endings that would
+// otherwise silently corrupt the PLAID-CLIENT-ID / PLAID-SECRET headers — a
+// stray trailing newline or space (e.g. from a CRLF-terminated line in a
+// sourced .env file) is invisible when checking the value in the Cloud Run
+// console, but net/http rejects it outright as "invalid header field value"
+// the moment a request is made.
+func sanitizeCredential(s string) string {
+	return strings.TrimSpace(s)
+}
+
 // New builds a live Plaid API client.
 // env must be "sandbox" or "production".
 func New(clientID, secret, env string, opts Options) (Client, error) {
 	cfg := plaidSDK.NewConfiguration()
-	cfg.AddDefaultHeader("PLAID-CLIENT-ID", clientID)
-	cfg.AddDefaultHeader("PLAID-SECRET", secret)
+	cfg.AddDefaultHeader("PLAID-CLIENT-ID", sanitizeCredential(clientID))
+	cfg.AddDefaultHeader("PLAID-SECRET", sanitizeCredential(secret))
 
 	switch env {
 	case "production":

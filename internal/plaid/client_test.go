@@ -1,6 +1,7 @@
 package plaid
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -202,5 +203,54 @@ func TestIsMutationDuringPagination(t *testing.T) {
 
 	if isMutationDuringPagination(fmt.Errorf("some unrelated error")) {
 		t.Error("expected false for a non-Plaid error")
+	}
+}
+
+func TestSanitizeCredential(t *testing.T) {
+	cases := map[string]string{
+		"abc123":     "abc123", // clean value passes through untouched
+		"abc123\r\n": "abc123", // CRLF from a Windows-terminated .env line
+		"abc123\n":   "abc123", // bare LF
+		"  abc123  ": "abc123", // incidental leading/trailing spaces
+		"abc123\r":   "abc123", // bare CR
+		"":           "",
+	}
+	for in, want := range cases {
+		if got := sanitizeCredential(in); got != want {
+			t.Errorf("sanitizeCredential(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNew_TrimsCredentialsBeforeSettingHeaders(t *testing.T) {
+	var gotClientID, gotSecret string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotClientID = r.Header.Get("Plaid-Client-Id")
+		gotSecret = r.Header.Get("Plaid-Secret")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer server.Close()
+
+	c, err := New("client-id-value\r\n", "secret-value\n", "sandbox", Options{})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	impl, ok := c.(*client)
+	if !ok {
+		t.Fatal("New did not return *client")
+	}
+	impl.api.GetConfig().Servers = plaidSDK.ServerConfigurations{{URL: server.URL}}
+
+	// Response body/decode error is irrelevant here — the assertion is about
+	// what header value actually left the client, which the test server
+	// captures the moment the request arrives.
+	_, _ = impl.GetInstitutionName(context.Background(), "ins_1")
+
+	if gotClientID != "client-id-value" {
+		t.Errorf("Plaid-Client-Id header = %q, want trimmed %q", gotClientID, "client-id-value")
+	}
+	if gotSecret != "secret-value" {
+		t.Errorf("Plaid-Secret header = %q, want trimmed %q", gotSecret, "secret-value")
 	}
 }
