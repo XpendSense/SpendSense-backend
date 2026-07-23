@@ -4,11 +4,13 @@ VALUES ($1, $2, $3, $4)
 ON CONFLICT (transaction_id) DO NOTHING
 RETURNING id, budget_period_id, transaction_id, matched_transaction_id, match_score, status, created_at;
 
--- ListPendingTransactionReviews joins transaction twice: once for the
+-- ListTransactionReviews joins transaction twice: once for the
 -- flagged/imported transaction (t), once for the matched Fixed-type
 -- transaction (mt) — which may be spawned from a FixedExpense template or a
 -- SavingsSource, no distinction needed since both are just transactions.
--- name: ListPendingTransactionReviews :many
+-- Returns pending and confirmed reviews (not dismissed). The frontend filters
+-- by status to separate the To-Review queue from already-linked transactions.
+-- name: ListTransactionReviews :many
 SELECT
     tr.id, tr.budget_period_id, tr.transaction_id, tr.matched_transaction_id,
     tr.match_score, tr.status, tr.created_at,
@@ -21,7 +23,7 @@ JOIN transaction mt ON mt.id = tr.matched_transaction_id
 JOIN budget_period bp ON bp.id = tr.budget_period_id
 WHERE bp.budget_profile_id = $1
   AND bp.is_archived = FALSE
-  AND tr.status = 'pending'
+  AND tr.status != 'dismissed'
 ORDER BY tr.match_score DESC;
 
 -- name: UpsertTransactionReview :one

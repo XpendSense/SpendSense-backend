@@ -324,11 +324,11 @@ func (s *TransactionService) DeletePaymentMethod(ctx context.Context, id, replac
 
 // ── Transaction review ────────────────────────────────────────────────────────
 
-func (s *TransactionService) ListTransactionReviews(ctx context.Context, userID, profileID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error) {
+func (s *TransactionService) ListTransactionReviews(ctx context.Context, userID, profileID uuid.UUID) ([]db.ListTransactionReviewsRow, error) {
 	if err := s.assertProfileMember(ctx, profileID, userID); err != nil {
 		return nil, err
 	}
-	return s.reviews.ListPending(ctx, profileID)
+	return s.reviews.List(ctx, profileID)
 }
 
 // MarkTransactionForReview flags a variable transaction as a likely duplicate

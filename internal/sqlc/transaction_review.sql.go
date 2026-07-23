@@ -221,7 +221,7 @@ func (q *Queries) ListFixedExpenseAliases(ctx context.Context, fixedExpenseID uu
 	return items, nil
 }
 
-const listPendingTransactionReviews = `-- name: ListPendingTransactionReviews :many
+const listTransactionReviews = `-- name: ListTransactionReviews :many
 SELECT
     tr.id, tr.budget_period_id, tr.transaction_id, tr.matched_transaction_id,
     tr.match_score, tr.status, tr.created_at,
@@ -234,11 +234,11 @@ JOIN transaction mt ON mt.id = tr.matched_transaction_id
 JOIN budget_period bp ON bp.id = tr.budget_period_id
 WHERE bp.budget_profile_id = $1
   AND bp.is_archived = FALSE
-  AND tr.status = 'pending'
+  AND tr.status != 'dismissed'
 ORDER BY tr.match_score DESC
 `
 
-type ListPendingTransactionReviewsRow struct {
+type ListTransactionReviewsRow struct {
 	ID                     uuid.UUID          `json:"id"`
 	BudgetPeriodID         uuid.UUID          `json:"budget_period_id"`
 	TransactionID          uuid.UUID          `json:"transaction_id"`
@@ -251,19 +251,21 @@ type ListPendingTransactionReviewsRow struct {
 	MatchedTransactionName *string            `json:"matched_transaction_name"`
 }
 
-// ListPendingTransactionReviews joins transaction twice: once for the
+// ListTransactionReviews joins transaction twice: once for the
 // flagged/imported transaction (t), once for the matched Fixed-type
 // transaction (mt) — which may be spawned from a FixedExpense template or a
 // SavingsSource, no distinction needed since both are just transactions.
-func (q *Queries) ListPendingTransactionReviews(ctx context.Context, budgetProfileID uuid.UUID) ([]ListPendingTransactionReviewsRow, error) {
-	rows, err := q.db.Query(ctx, listPendingTransactionReviews, budgetProfileID)
+// Returns pending and confirmed reviews (not dismissed). The frontend filters
+// by status to separate the To-Review queue from already-linked transactions.
+func (q *Queries) ListTransactionReviews(ctx context.Context, budgetProfileID uuid.UUID) ([]ListTransactionReviewsRow, error) {
+	rows, err := q.db.Query(ctx, listTransactionReviews, budgetProfileID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListPendingTransactionReviewsRow
+	var items []ListTransactionReviewsRow
 	for rows.Next() {
-		var i ListPendingTransactionReviewsRow
+		var i ListTransactionReviewsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.BudgetPeriodID,
