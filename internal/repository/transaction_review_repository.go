@@ -14,7 +14,7 @@ import (
 type TransactionReviewRepository interface {
 	Create(ctx context.Context, periodID, transactionID, matchedTransactionID uuid.UUID, score float64) (db.TransactionReview, error)
 	Upsert(ctx context.Context, periodID, transactionID, matchedTransactionID uuid.UUID, score float64) (db.TransactionReview, error)
-	ListPending(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error)
+	List(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListTransactionReviewsRow, error)
 	GetByID(ctx context.Context, id uuid.UUID) (db.TransactionReview, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	GetConfirmedByMatchedTransaction(ctx context.Context, matchedTransactionID uuid.UUID) (db.TransactionReview, error)
@@ -75,8 +75,8 @@ func (r *transactionReviewRepository) Upsert(ctx context.Context, periodID, tran
 	}, nil
 }
 
-func (r *transactionReviewRepository) ListPending(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error) {
-	return r.q.ListPendingTransactionReviews(ctx, budgetProfileID)
+func (r *transactionReviewRepository) List(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListTransactionReviewsRow, error) {
+	return r.q.ListTransactionReviews(ctx, budgetProfileID)
 }
 
 func (r *transactionReviewRepository) GetByID(ctx context.Context, id uuid.UUID) (db.TransactionReview, error) {

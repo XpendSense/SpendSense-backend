@@ -364,7 +364,7 @@ func (m *mockTransactionRepo) ListSystemCategories(_ context.Context) (map[strin
 type mockTransactionReviewRepo struct {
 	create                  func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, float64) (db.TransactionReview, error)
 	upsert                  func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, float64) (db.TransactionReview, error)
-	listPending             func(context.Context, uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error)
+	list                    func(context.Context, uuid.UUID) ([]db.ListTransactionReviewsRow, error)
 	getByID                 func(context.Context, uuid.UUID) (db.TransactionReview, error)
 	updateStatus            func(context.Context, uuid.UUID, string) error
 	getConfirmedByMatchedTx func(context.Context, uuid.UUID) (db.TransactionReview, error)
@@ -381,9 +381,9 @@ func (m *mockTransactionReviewRepo) Create(ctx context.Context, periodID, transa
 	}
 	return db.TransactionReview{}, nil
 }
-func (m *mockTransactionReviewRepo) ListPending(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListPendingTransactionReviewsRow, error) {
-	if m.listPending != nil {
-		return m.listPending(ctx, budgetProfileID)
+func (m *mockTransactionReviewRepo) List(ctx context.Context, budgetProfileID uuid.UUID) ([]db.ListTransactionReviewsRow, error) {
+	if m.list != nil {
+		return m.list(ctx, budgetProfileID)
 	}
 	return nil, nil
 }
